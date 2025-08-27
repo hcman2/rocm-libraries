@@ -608,6 +608,18 @@ class SizeMapping:
                  'synchronizerSizePerWG',
                  'nonTemporalA',
                  'nonTemporalB',
+                 'NonTemporalD',
+                 'WaveSeparateGlobalReadA',
+                 'WaveSeparateGlobalReadB',
+                 'UnrollLoopSwapGlobalReadOrder',
+                 'DirectToVgprA',
+                 'DirectToVgprB',
+                 'NumLoadsCoalescedA',
+                 'NumLoadsCoalescedB',
+                 'WaveGroup',
+                 'VectorWidthA',
+                 'VectorWidthB',
+                 'LocalSplitU'
                  ]
 
     @classmethod
@@ -622,10 +634,9 @@ class SizeMapping:
         if d['_GlobalAccumulation'] == 'PartialsBuffer':
             globalAccum = 4
         pgr = int(d['PrefetchGlobalRead'])
-        synchronizerSizePerWG = ceil((d['MIWaveTile'][0]*d['MIWaveTile'][1] if d['EnableMatrixInstruction'] else d['ThreadTile0']*d['ThreadTile1'])        \
-                                    * (ceil((d['NumElementsPerThread'])/d['NumElementsPerBatchStore']) if d['NumElementsPerBatchStore'] != 0 else d['NumElementsPerThread'])        \
-                                    * ceil(d["NumThreads"] / d["WavefrontSize"]))
-
+        synchronizerSizePerWG = ceil((d['MIWaveTile'][0]*d['MIWaveTile'][1] if d['EnableMatrixInstruction'] else d['ThreadTile0']*d['ThreadTile1']        \
+                                    * ceil((d['NumElementsPerThread'])/d['NumElementsPerBatchStore']) if d['NumElementsPerBatchStore'] != 0 else 1        \
+                                    * ceil(d["NumThreads"] / d["WavefrontSize"])))
 
         # Converts list of list specified in SFCWGM to a 32bit signed integer that is passed to the WGM arg
         # Input: nested list in the form [[GridDimM_L1, GridDimN_L1], [GridDimM_L2, GridDimN_L2]], all values are 8bit unsigned
@@ -640,6 +651,8 @@ class SizeMapping:
             # WGM kernel param is interpreted as int so, 32bit output to 32b int
             return ctypes.c_int(output & 0xFFFFFFFF).value
 
+        dtva = False if d['DirectToVgprA'] == 0 else True
+        dtvb = False if d['DirectToVgprB'] == 0 else True
 
         return cls(waveNum                  = d['NumThreads'] // d['WavefrontSize'],
                    workGroup                = d['WorkGroup'],
@@ -677,6 +690,18 @@ class SizeMapping:
                    synchronizerSizePerWG    = synchronizerSizePerWG,
                    nonTemporalA             = d['NonTemporalA'],
                    nonTemporalB             = d['NonTemporalB'],
+                   NonTemporalD             = d['NonTemporalD'],
+                   WaveSeparateGlobalReadA  = d['WaveSeparateGlobalReadA'],
+                   WaveSeparateGlobalReadB  = d['WaveSeparateGlobalReadB'],
+                   UnrollLoopSwapGlobalReadOrder = d['UnrollLoopSwapGlobalReadOrder'],
+                   DirectToVgprA            = dtva,
+                   DirectToVgprB            = dtvb,
+                   NumLoadsCoalescedA       = d['NumLoadsCoalescedA'],
+                   NumLoadsCoalescedB       = d['NumLoadsCoalescedB'],
+                   WaveGroup                = d["MIWaveGroup"],
+                   VectorWidthA             = d["VectorWidthA"],
+                   VectorWidthB             = d["VectorWidthB"],
+                   LocalSplitU              = d["LocalSplitU"],
                    )
     @classmethod
     def ReadOriginalMacroTile(cls, d):

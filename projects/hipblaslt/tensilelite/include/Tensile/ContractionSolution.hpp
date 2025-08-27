@@ -163,6 +163,19 @@ namespace TensileLite
 
         int nonTemporalA = 0;
         int nonTemporalB = 0;
+        int NonTemporalD = 0;
+        int WaveSeparateGlobalReadA = 0;
+        int WaveSeparateGlobalReadB = 0;
+        int UnrollLoopSwapGlobalReadOrder = 0;
+        bool DirectToVgprA = false;
+        bool DirectToVgprB = false;
+        int NumLoadsCoalescedA = 0;
+        int NumLoadsCoalescedB = 0;
+        int VectorWidthA = 1;
+        int VectorWidthB = 1;
+        int LocalSplitU = 1;
+
+        std::array<int, 2> waveGroup;
     };
 
     struct StreamKSettings
@@ -324,6 +337,7 @@ namespace TensileLite
         /**
          * Generate a set of kernel calls to solve a particular problem.
          */
+
         virtual std::vector<KernelInvocation> solve(ContractionProblem const& problem,
                                                     ProblemInputs const&      inputs,
                                                     Hardware const&           hardware,
@@ -576,6 +590,11 @@ namespace TensileLite
                                                      Hardware const* hardware,
                                                      uint32_t        skgrid) const;
         uint32_t calculateAutoGSU(Problem const& problem, Hardware const* hardware) const;
+
+        double calculateDimensionM(Problem const&  problem) const;
+        double calculateDimensionN(Problem const&  problem) const;
+        double calculateNumBatches(Problem const&  problem) const;
+        SizeMapping getSizeMapping(void) const {return sizeMapping;};
     };
 
     template <typename TAct>

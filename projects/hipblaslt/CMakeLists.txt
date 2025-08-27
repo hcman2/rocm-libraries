@@ -228,6 +228,14 @@ if(NOT ROCM_LIBS_SUPERBUILD)
     endblock()
 endif()
 
+if(NOT ROCM_LIBS_SUPERBUILD)
+    # TODO: This is a temporary solution to prevent the installation of the formocast license files.
+    block(SCOPE_FOR VARIABLES)
+        set(FORMOCAST_ENABLE_INSTALL OFF)
+        add_subdirectory("${CMAKE_CURRENT_SOURCE_DIR}/../../shared/formocast" formocast)
+    endblock()
+endif()
+
 add_subdirectory(tensilelite)
 
 if(HIPBLASLT_ENABLE_HOST)

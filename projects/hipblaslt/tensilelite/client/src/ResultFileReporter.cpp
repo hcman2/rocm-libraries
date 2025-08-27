@@ -75,10 +75,12 @@ namespace TensileLite
                 m_solutionName = valueStr;
                 m_output.setHeaderForKey(valueStr, valueStr);
             }
+            else if(key == ResultKey::SolutionIndex)
+            {
+                m_currSolutionIdx = std::stod(valueStr);
+            }
             else if(key == ResultKey::TimeUS)
             {
-                // cascade from BenchmarkTimer, Time-US first
-                ++m_currSolutionIdx;
                 if(!m_invalidSolution)
                 {
                     double timeUS    = std::stod(valueStr);
@@ -101,7 +103,6 @@ namespace TensileLite
                     || (key == ResultKey::SpeedGFlopsPerCu
                         && m_performanceMetric == PerformanceMetric::CUEfficiency))
             {
-                // cascade from BenchmarkTimer, SpeedGFlops or SpeedGFlopsPerCU second
                 if(!m_invalidSolution)
                 {
                     m_output.setValueForKey(m_solutionName, value);

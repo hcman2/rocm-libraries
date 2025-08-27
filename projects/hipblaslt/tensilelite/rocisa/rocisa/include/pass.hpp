@@ -32,6 +32,7 @@ namespace rocisa
         bool removeDupFunc   = true;
         bool removeDupAssign = true;
         bool getCycles       = true;
+        bool unrolledLoop    = false; // is used when getCycles is true
         int  numWaves        = 0; // is used when getCycles is true
 
         bool doOpt() const
