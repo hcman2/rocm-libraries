@@ -1055,7 +1055,9 @@ class Solution(collections.abc.Mapping):
         return
       if isaInfoMap[isa].asmCaps["HasMFMA"]:
         if not state["ProblemType"]["HighPrecisionAccumulate"] \
-           and state["ProblemType"]["DataType"].numRegisters() < 1 :
+           and state["ProblemType"]["DataType"].numRegisters() < 1 \
+           and state["ProblemType"]["DataTypeA"].numRegisters() <= state["ProblemType"]["DataType"].numRegisters() \
+           and state["ProblemType"]["DataTypeB"].numRegisters() <= state["ProblemType"]["DataType"].numRegisters():
           reject(state, printRejectionReason, "Matrix instructions for half, bf16 (or i8) types are natively accumulated" + \
            " in fp32 (or i32) precision. Please add the following config:" + \
            "\n - HighPrecisionAccumulate: True")
@@ -1362,12 +1364,19 @@ class Solution(collections.abc.Mapping):
           return
 
     if state["ConvertAfterDS"]:
-        if (state["ProblemType"]["DataType"].isHalf() == False):
-            reject(state, printRejectionReason, "ConvertAfterDS only support DataType half")
-            return
-        if (state["ProblemType"]["DataTypeA"].isAnyFloat8() == False) and (state["ProblemType"]["DataTypeB"].isAnyFloat8() == False):
-            reject(state, printRejectionReason, "one of DataTypeA or DataTypeB need to be float8/float8_fnuz")
-            return
+      if (state["ProblemType"]["DataType"].isHalf() == False) and (state["ProblemType"]["DataType"].isBFloat16() == False):
+          reject(state, printRejectionReason, "ConvertAfterDS only support DataType half")
+          return
+      if (state["ProblemType"]["DataTypeA"].isAnyFloat8() == False) and (state["ProblemType"]["DataTypeB"].isAnyFloat8() == False) \
+          and not (state["ProblemType"]["DataTypeA"].isSingle() and state["ProblemType"]["DataTypeB"].isSingle()):
+          reject(state, printRejectionReason, "one of DataTypeA or DataTypeB need to be float8/float8_fnuz or both are fp32")
+          return
+
+    if (state["ProblemType"]["DataType"].isBFloat16() == True) \
+      and (state["ProblemType"]["DataTypeA"].isSingle() and state["ProblemType"]["DataTypeB"].isSingle()):
+      if state["ConvertAfterDS"] == False:
+        reject(state, printRejectionReason, "SS_BBS only supports ConvertAfterDS = True")
+        return
 
     # DepthU == -1?
     if state["DepthU"] == -1:
@@ -1736,8 +1745,11 @@ class Solution(collections.abc.Mapping):
           if state["ProblemType"]["Sparse"] and state["MIInputPerThread"] * state["ProblemType"]["DataType"].numBytes() > 16:
             if state["LocalReadVectorWidth"] < state["MIInputPerThread"] // 2:
               reject(state, printRejectionReason, "LocalReadVectorWidth < %u" %(state["MIInputPerThread"] // 2))
-          elif not state["ProblemType"]["Sparse"] and not state["UseF32XEmulation"] and not(state["ProblemType"]["DataType"].is8bitFloat() and (state["MatrixInstK"] == 64 or state["MatrixInstK"] == 128)):
-            if state["LocalReadVectorWidth"] < state["MIInputPerThread"]:
+          elif not state["ProblemType"]["Sparse"] and not (state["UseF32XEmulation"]) and not(state["ProblemType"]["DataType"].is8bitFloat() and (state["MatrixInstK"] == 64 or state["MatrixInstK"] == 128)):
+            bpeRatio = 1
+            if state["ProblemType"]["DataType"].isBFloat16() and state["ProblemType"]["DataTypeA"].isSingle() and state["ProblemType"]["DataTypeB"].isSingle():
+              bpeRatio = 2
+            if state["LocalReadVectorWidth"] < state["MIInputPerThread"] // bpeRatio:
               reject(state, printRejectionReason, "LocalReadVectorWidth < %u" %(state["MIInputPerThread"]))
           if state["LocalReadVectorWidth"] > state["MIInputPerThread"] and not state["TransposeLDS"]:
             reject(state, printRejectionReason, "LocalReadVectorWidth require Transpose LDS")

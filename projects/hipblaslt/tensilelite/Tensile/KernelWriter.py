@@ -3879,8 +3879,8 @@ class KernelWriter(metaclass=abc.ABCMeta):
       valuBlocksA = numVgprBufferA * kernel["InnerUnroll"]
       valuBlocksB = numVgprBufferB * kernel["InnerUnroll"]
 
-      self.states.a.numVgprValuPerBlock = kernel["MIWaveTileA"] * kernel["MIInputPerThreadA"] * tensorParametersA["bpe"] // self.states.bpr
-      self.states.b.numVgprValuPerBlock = kernel["MIWaveTileB"] * kernel["MIInputPerThreadB"] * tensorParametersB["bpe"] // self.states.bpr
+      self.states.a.numVgprValuPerBlock = kernel["MIWaveTileA"] * kernel["MIInputPerThreadA"] * max(tensorParametersA["bpeDS"], tensorParametersA["bpe"]) // self.states.bpr
+      self.states.b.numVgprValuPerBlock = kernel["MIWaveTileB"] * kernel["MIInputPerThreadB"] * max(tensorParametersB["bpeDS"], tensorParametersB["bpe"]) // self.states.bpr
 
       # change numVgprValuAPerBlock to 0 if DirectToVgpr is enabled (except for DTV + (pack or input conversion))
       if kernel["DirectToVgprA"] and not (self.states.packDTVA or self.states.convDTVA):
@@ -4271,7 +4271,7 @@ class KernelWriter(metaclass=abc.ABCMeta):
     numVgprValuPackA = 0
     if tensorParametersA["bpe"] < 4 and not kernel["UnrollMajorLDSA"] and not kernel["enableLDSTrA"]:
       self.states.a.startVgprValuPack = vgprIdx
-      if self.states.lrvwTileA > 1:
+      if self.states.lrvwTileA > 1 and tensorParametersA["bpe"] > tensorParametersA["bpeDS"]:
         numVgprValuPackA = ceil(kernel["VectorWidthA"] * tensorParametersA["bpe"] / self.states.bpr) * kernel["MIWaveTileA"] // kernel["VectorWidthA"] * kernel["InnerUnroll"] * self.states.numVgprBuffer * kernel["MIInputPerThreadA"]
         if self.states.packDTVA:
           # pack DTV case, double the number
@@ -4306,7 +4306,7 @@ class KernelWriter(metaclass=abc.ABCMeta):
     numVgprValuPackB = 0
     if tensorParametersB["bpe"] < 4 and not kernel["UnrollMajorLDSB"] and not kernel["enableLDSTrB"]:
       self.states.b.startVgprValuPack = vgprIdx
-      if self.states.lrvwTileB > 1:
+      if self.states.lrvwTileB > 1 and tensorParametersB["bpe"] > tensorParametersB["bpeDS"]:
         numVgprValuPackB = ceil(kernel["VectorWidthB"] * tensorParametersB["bpe"] / self.states.bpr) * kernel["MIWaveTileB"] // kernel["VectorWidthB"] * kernel["InnerUnroll"] * self.states.numVgprBuffer * kernel["MIInputPerThreadB"]
         if self.states.packDTVB:
           # pack DTV case, double the number
