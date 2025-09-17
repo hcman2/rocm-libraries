@@ -1372,11 +1372,11 @@ class Solution(collections.abc.Mapping):
           reject(state, printRejectionReason, "one of DataTypeA or DataTypeB need to be float8/float8_fnuz or both are fp32")
           return
 
-    if (state["ProblemType"]["DataType"].isBFloat16() == True) \
-      and (state["ProblemType"]["DataTypeA"].isSingle() and state["ProblemType"]["DataTypeB"].isSingle()):
-      if state["ConvertAfterDS"] == False:
-        reject(state, printRejectionReason, "SS_BBS only supports ConvertAfterDS = True")
-        return
+    # if (state["ProblemType"]["DataType"].isBFloat16() == True) \
+    #   and (state["ProblemType"]["DataTypeA"].isSingle() and state["ProblemType"]["DataTypeB"].isSingle()):
+    #   if state["ConvertAfterDS"] == False:
+    #     reject(state, printRejectionReason, "SS_BBS only supports ConvertAfterDS = True")
+    #     return
 
     # DepthU == -1?
     if state["DepthU"] == -1:
@@ -1746,10 +1746,7 @@ class Solution(collections.abc.Mapping):
             if state["LocalReadVectorWidth"] < state["MIInputPerThread"] // 2:
               reject(state, printRejectionReason, "LocalReadVectorWidth < %u" %(state["MIInputPerThread"] // 2))
           elif not state["ProblemType"]["Sparse"] and not (state["UseF32XEmulation"]) and not(state["ProblemType"]["DataType"].is8bitFloat() and (state["MatrixInstK"] == 64 or state["MatrixInstK"] == 128)):
-            bpeRatio = 1
-            if state["ProblemType"]["DataType"].isBFloat16() and state["ProblemType"]["DataTypeA"].isSingle() and state["ProblemType"]["DataTypeB"].isSingle():
-              bpeRatio = 2
-            if state["LocalReadVectorWidth"] < state["MIInputPerThread"] // bpeRatio:
+            if state["LocalReadVectorWidth"] < state["MIInputPerThread"]:
               reject(state, printRejectionReason, "LocalReadVectorWidth < %u" %(state["MIInputPerThread"]))
           if state["LocalReadVectorWidth"] > state["MIInputPerThread"] and not state["TransposeLDS"]:
             reject(state, printRejectionReason, "LocalReadVectorWidth require Transpose LDS")
