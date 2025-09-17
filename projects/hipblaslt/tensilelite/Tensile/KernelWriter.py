@@ -3879,8 +3879,12 @@ class KernelWriter(metaclass=abc.ABCMeta):
       valuBlocksA = numVgprBufferA * kernel["InnerUnroll"]
       valuBlocksB = numVgprBufferB * kernel["InnerUnroll"]
 
-      self.states.a.numVgprValuPerBlock = kernel["MIWaveTileA"] * kernel["MIInputPerThreadA"] * max(tensorParametersA["bpeDS"], tensorParametersA["bpe"]) // self.states.bpr
-      self.states.b.numVgprValuPerBlock = kernel["MIWaveTileB"] * kernel["MIInputPerThreadB"] * max(tensorParametersB["bpeDS"], tensorParametersB["bpe"]) // self.states.bpr
+      self.states.a.numVgprValuPerBlock = kernel["MIWaveTileA"] * kernel["MIInputPerThreadA"] * tensorParametersA["bpe"] // self.states.bpr
+      self.states.b.numVgprValuPerBlock = kernel["MIWaveTileB"] * kernel["MIInputPerThreadB"] * tensorParametersB["bpe"] // self.states.bpr
+      if tensorParametersA["bpeDS"] == 4 and tensorParametersA["bpe"] == 2:
+        self.states.a.numVgprValuPerBlock *= 2
+      if tensorParametersB["bpeDS"] == 4 and tensorParametersB["bpe"] == 2:
+        self.states.b.numVgprValuPerBlock *= 2
 
       # change numVgprValuAPerBlock to 0 if DirectToVgpr is enabled (except for DTV + (pack or input conversion))
       if kernel["DirectToVgprA"] and not (self.states.packDTVA or self.states.convDTVA):
@@ -4271,7 +4275,9 @@ class KernelWriter(metaclass=abc.ABCMeta):
     numVgprValuPackA = 0
     if tensorParametersA["bpe"] < 4 and not kernel["UnrollMajorLDSA"] and not kernel["enableLDSTrA"]:
       self.states.a.startVgprValuPack = vgprIdx
-      if self.states.lrvwTileA > 1 and tensorParametersA["bpe"] > tensorParametersA["bpeDS"]:
+      if tensorParametersA["bpe"] == 2 and tensorParametersA["bpeDS"] == 4:
+        numVgprValuPackA = 0
+      elif self.states.lrvwTileA > 1:
         numVgprValuPackA = ceil(kernel["VectorWidthA"] * tensorParametersA["bpe"] / self.states.bpr) * kernel["MIWaveTileA"] // kernel["VectorWidthA"] * kernel["InnerUnroll"] * self.states.numVgprBuffer * kernel["MIInputPerThreadA"]
         if self.states.packDTVA:
           # pack DTV case, double the number
@@ -4306,6 +4312,8 @@ class KernelWriter(metaclass=abc.ABCMeta):
     numVgprValuPackB = 0
     if tensorParametersB["bpe"] < 4 and not kernel["UnrollMajorLDSB"] and not kernel["enableLDSTrB"]:
       self.states.b.startVgprValuPack = vgprIdx
+      if tensorParametersB["bpe"] == 2 and tensorParametersB["bpeDS"] == 4:
+        numVgprValuPackB = 0
       if self.states.lrvwTileB > 1 and tensorParametersB["bpe"] > tensorParametersB["bpeDS"]:
         numVgprValuPackB = ceil(kernel["VectorWidthB"] * tensorParametersB["bpe"] / self.states.bpr) * kernel["MIWaveTileB"] // kernel["VectorWidthB"] * kernel["InnerUnroll"] * self.states.numVgprBuffer * kernel["MIInputPerThreadB"]
         if self.states.packDTVB:

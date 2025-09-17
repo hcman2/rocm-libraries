@@ -4579,7 +4579,9 @@ class KernelWriterAssembly(KernelWriter):
     if self.states.a.numVgprValu > 0 and not kernel["DirectToVgprA"]:
       numValuA = self.states.a.numVgprValu
       if tensorParametersA["bpe"] < 4 and not kernel["UnrollMajorLDSA"] and not kernel["enableLDSTrA"]:
-        if self.states.lrvwTileA > 1:
+        if tensorParametersA["bpe"] == 2 and tensorParametersA["bpeDS"] == 4:
+          numVgprValuPackA = 0
+        elif self.states.lrvwTileA > 1:
           numVgprValuPackA = ceil(kernel["VectorWidthA"] * tensorParametersA["bpe"] / self.states.bpr) * kernel["MIWaveTileA"] // kernel["VectorWidthA"] * kernel["InnerUnroll"] * self.states.numVgprBuffer * kernel["MIInputPerThreadA"]
           if self.states.packDTVA:
             # pack DTV case, double the number
@@ -4600,7 +4602,9 @@ class KernelWriterAssembly(KernelWriter):
     if self.states.b.numVgprValu > 0 and not kernel["DirectToVgprB"]:
       numValuB = self.states.b.numVgprValu
       if tensorParametersB["bpe"] < 4 and not kernel["UnrollMajorLDSB"] and not kernel["enableLDSTrB"]:
-        if self.states.lrvwTileB > 1:
+        if tensorParametersB["bpe"] == 2 and tensorParametersB["bpeDS"] == 4:
+          numVgprValuPackB = 0
+        elif self.states.lrvwTileB > 1:
           numVgprValuPackB = ceil(kernel["VectorWidthB"] * tensorParametersB["bpe"] / self.states.bpr) * kernel["MIWaveTileB"] // kernel["VectorWidthB"] * kernel["InnerUnroll"] * self.states.numVgprBuffer * kernel["MIInputPerThreadB"]
           if self.states.packDTVB:
             # pack DTV case, double the number
