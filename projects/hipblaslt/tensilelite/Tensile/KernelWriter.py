@@ -3024,6 +3024,9 @@ class KernelWriter(metaclass=abc.ABCMeta):
       globalReadMode1st = 3 if tensorParameters1st["isSwizzled"] else globalReadMode1st
       globalReadMode2nd = 3 if tensorParameters2nd["isSwizzled"] else globalReadMode2nd
 
+      globalReadMode1st = 3 if tensorParameters1st["bpeGR"] != tensorParameters1st["bpeDS"] else globalReadMode1st
+      globalReadMode2nd = 3 if tensorParameters2nd["bpeGR"] != tensorParameters2nd["bpeDS"] else globalReadMode2nd
+
       if kernel["DirectToLdsA"] and kernel["NonDTLTailLoopA"]:
         if tc1 == 'A':
           globalReadMode1st = 2
@@ -4314,7 +4317,7 @@ class KernelWriter(metaclass=abc.ABCMeta):
       self.states.b.startVgprValuPack = vgprIdx
       if tensorParametersB["bpe"] == 2 and tensorParametersB["bpeDS"] == 4:
         numVgprValuPackB = 0
-      if self.states.lrvwTileB > 1 and tensorParametersB["bpe"] > tensorParametersB["bpeDS"]:
+      if self.states.lrvwTileB > 1:
         numVgprValuPackB = ceil(kernel["VectorWidthB"] * tensorParametersB["bpe"] / self.states.bpr) * kernel["MIWaveTileB"] // kernel["VectorWidthB"] * kernel["InnerUnroll"] * self.states.numVgprBuffer * kernel["MIInputPerThreadB"]
         if self.states.packDTVB:
           # pack DTV case, double the number
