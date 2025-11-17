@@ -2416,6 +2416,10 @@ void testing_matmul_with_bias(const Arguments& arg,
     hipblaslt_ext::UserArguments* userArgs   = nullptr;
     hipblaslt_ext::UserArguments* d_userArgs = nullptr;
 
+    // TODO: Need to save this in a global scope var
+    // if(arg.requested_solution_num < 0)
+    //     setenv("REQUESTED_SOLUTIONS_NEG1","1",1);
+
     // Get Heuristic results
     int32_t requestAlgoCount = arg.requested_solution_num < 0 ? HIPBLASLT_MAX_REQUESTED_SOLUTION_NUM
                                                               : arg.requested_solution_num;

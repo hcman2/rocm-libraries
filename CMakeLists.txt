@@ -119,6 +119,14 @@ if("origami" IN_LIST ROCM_LIBS_ENABLE_COMPONENTS)
     )
 endif()
 
+if("formocast" IN_LIST ROCM_LIBS_ENABLE_COMPONENTS)
+    add_subdirectory_with_message(
+        COMPONENT formocast
+        PREFIX_PATH shared
+        EXPECT_TARGET roc::formocast
+    )
+endif()
+
 if("hipblaslt" IN_LIST ROCM_LIBS_ENABLE_COMPONENTS)
     set(HIPBLASLT_ENABLE_BLIS OFF)
     add_subdirectory_with_message(

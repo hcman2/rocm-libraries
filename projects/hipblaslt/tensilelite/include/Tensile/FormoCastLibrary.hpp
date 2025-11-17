@@ -29,7 +29,7 @@
 #include <set>
 #include <vector>
 
-#include <Tensile/UtilsOrigami.hpp>
+#include <formocast.hpp>
 
 namespace TensileLite
 {
@@ -43,15 +43,13 @@ namespace TensileLite
      * to the size asked for.
      */
     template <typename MyProblem, typename MySolution = typename MyProblem::Solution>
-    struct ProblemPredictionLibrary : public SolutionLibrary<MyProblem, MySolution>
+    struct ProblemFormoCastLibrary : public SolutionLibrary<MyProblem, MySolution>
     {
         std::unordered_map<int, std::shared_ptr<MySolution>> solutionmap;
-        std::vector<origami::config_t>                       origami_config_list;
-        std::unordered_map<origami::config_t, int>           origami_config_map;
 
         static std::string Type()
         {
-            return "Prediction";
+            return "FormoCast";
         }
         virtual std::string type() const override
         {
@@ -62,6 +60,66 @@ namespace TensileLite
             if(solutionmap.empty())
                 return concatenate(type(), ", solutionmap: empty");
             return concatenate(type(), solutionmap.size());
+        }
+
+        static void setupFormoCast(Tensilelite::Formocast& formocast, Task& task)
+        {
+            auto& problem  = task.problem;
+            auto& solution = task.solution;
+
+            // GetProblemInfo
+            Tensilelite::Formocast::ProblemInfo problemInfo;
+            problemInfo.M          = solution.calculateDimensionM(problem);
+            problemInfo.N          = solution.calculateDimensionN(problem);
+            problemInfo.NumBatches = solution.calculateNumBatches(problem);
+
+            problemInfo.K          = problem.boundSize(0);
+            problemInfo.transA     = problem.transA();
+            problemInfo.transB     = problem.transB();
+            problemInfo.bpeA       = problem.a().elementBytes();
+            problemInfo.bpeB       = problem.b().elementBytes();
+            problemInfo.bpeD       = problem.d().elementBytes();
+            problemInfo.bpeCompute = problem.computeTypeElementSize();
+
+            // GetSizeMapping
+            auto                                sizeMapping = solution.getSizeMapping();
+            Tensilelite::Formocast::SizeMapping sm;
+
+            sm.waveNum = sizeMapping.waveNum;
+
+            sm.macroTile[0]      = sizeMapping.macroTile.x;
+            sm.macroTile[1]      = sizeMapping.macroTile.y;
+            sm.matrixInstruction = sizeMapping.matrixInstruction;
+
+            sm.grvwA = sizeMapping.grvwA;
+            sm.grvwB = sizeMapping.grvwB;
+            sm.gwvwC = sizeMapping.gwvwC;
+            sm.gwvwD = sizeMapping.gwvwD;
+
+            sm.depthU             = sizeMapping.depthU;
+            sm.globalSplitU       = solution.calculateAutoGSU(problem, &task.hardware);
+            sm.workGroupMapping   = sizeMapping.workGroupMapping;
+            sm.globalAccumulation = sizeMapping.globalAccumulation;
+
+            sm.workGroupMappingXCC      = sizeMapping.workGroupMappingXCC;
+            sm.workGroupMappingXCCGroup = sizeMapping.workGroupMappingXCCGroup;
+            sm.globalSplitUCoalesced    = sizeMapping.globalSplitUCoalesced;
+            sm.globalSplitUWorkGroupMappingRoundRobin
+                = sizeMapping.globalSplitUWorkGroupMappingRoundRobin;
+
+            sm.CUOccupancy            = sizeMapping.CUOccupancy;
+            sm.PrefetchGlobalRead     = sizeMapping.PrefetchGlobalRead;
+            sm.MathClocksUnrolledLoop = sizeMapping.MathClocksUnrolledLoop;
+
+            sm.DirectToVgprA      = sizeMapping.DirectToVgprA;
+            sm.DirectToVgprB      = sizeMapping.DirectToVgprB;
+            sm.NumLoadsCoalescedA = sizeMapping.NumLoadsCoalescedA;
+            sm.NumLoadsCoalescedB = sizeMapping.NumLoadsCoalescedB;
+            sm.VectorWidthA       = sizeMapping.VectorWidthA;
+            sm.VectorWidthB       = sizeMapping.VectorWidthB;
+            sm.LocalSplitU        = sizeMapping.LocalSplitU;
+
+            sm.waveGroup = sizeMapping.waveGroup;
         }
 
         virtual std::shared_ptr<MySolution> getSolutionByIndex(MyProblem const& problem,
@@ -95,7 +153,7 @@ namespace TensileLite
                              = SolutionLibrarySearchType::DEFAULT) const override
         {
             // TODO- Temp
-            std::cout << "Entering PredictionLibrary::findAllSolutions()" << std::endl;
+            std::cout << "Entering FormoCastLibrary::findAllSolutions()" << std::endl;
 
             bool                    debug = Debug::Instance().printPropertyEvaluation();
             SolutionSet<MySolution> rv;
@@ -138,72 +196,50 @@ namespace TensileLite
                                                             int numSolutions) const override
         {
             // TODO- Temp
-            std::cout << "Entering PredictionLibrary::findTopSolutions()" << std::endl;
+            std::cout << "Entering FormoCastLibrary::findTopSolutions()" << std::endl;
 
-            SolutionVector<MySolution> rv;
-            size_t                     m     = 1;
-            size_t                     n     = 1;
-            size_t                     k     = 1;
-            size_t                     batch = 1;
-            for(size_t i = 0; i < problem.freeIndicesA().size(); i++)
+            bool                                debug = Debug::Instance().printPropertyEvaluation();
+            SolutionVector<MySolution>          rv;
+            Tensilelite::Formocast              formocast;
+            std::vector<std::pair<int, double>> performance;
+            // TODO- tie breaker
+            // std::vector<Tensilelite::Formocast::TieBreakerInfo> tbInfo;
+            for(auto const& row : solutionmap)
             {
-                m *= problem.freeSizeA(i);
-            }
-            for(size_t i = 0; i < problem.freeIndicesB().size(); i++)
-            {
-                n *= problem.freeSizeB(i);
-            }
-            for(size_t i = 0; i < problem.boundIndices().size(); ++i)
-            {
-                k *= problem.boundSize(i);
-            }
-            for(size_t i = 0; i < problem.batchIndices().size(); ++i)
-            {
-                batch *= problem.batchSize(i);
-            }
+                int  sol_idx  = row.first;
+                auto solution = row.second;
 
-            hip::HipAMDGPU const* pAMDGPU = dynamic_cast<hip::HipAMDGPU const*>(&hardware);
-
-            const origami::hardware_t& analytical_hardware = *(pAMDGPU->analyticalHardware);
-            auto miDataType = datatypeToAnalyticalDatatype(problem.computeInputType());
-
-            if(problem.f32XdlMathOp() == rocisa::DataType::XFloat32) // Check F32 compute type
-                miDataType = origami::data_type_t::XFloat32;
-            origami::problem_t origami_problem = {
-                .size        = {m, n, k},
-                .batch       = batch,
-                .a_transpose = problem.transA() ? origami::transpose_t::T : origami::transpose_t::N,
-                .b_transpose = problem.transB() ? origami::transpose_t::T : origami::transpose_t::N,
-                .a_dtype     = datatypeToAnalyticalDatatype(problem.a().dataType()),
-                .b_dtype     = datatypeToAnalyticalDatatype(problem.b().dataType()),
-                .c_dtype     = datatypeToAnalyticalDatatype(problem.c().dataType()),
-                .d_dtype     = datatypeToAnalyticalDatatype(problem.d().dataType()),
-                .mi_dtype    = miDataType,
-                .a_mx_block_size = 0, // MX Data types come from rocroller
-                .b_mx_block_size = 0, // MX Data types come from rocroller
-            };
-
-            auto prediction_result = origami::rank_configs(
-                origami_problem, *(pAMDGPU->analyticalHardware), origami_config_list);
-
-            for(const auto& r : prediction_result)
-            {
-                auto mapiter  = origami_config_map.find(r.config);
-                auto smapiter = solutionmap.find(mapiter->second);
-                if(mapiter != origami_config_map.end() && smapiter != solutionmap.end())
+                if(debug)
                 {
-                    auto solution = smapiter->second;
-                    if((*solution->hardwarePredicate)(hardware)
-                       && (*solution->problemPredicate)(problem))
-                    {
-                        rv.emplace_back(solution);
-                        if(rv.size() == numSolutions)
-                        {
-                            break;
-                        }
-                    }
+                    std::cout << solution->description() << ": ";
+                }
+
+                if((*solution->hardwarePredicate)(hardware)
+                   && (*solution->problemPredicate)(problem))
+                {
+                    Task task(hardware, problem, *solution);
+                    setupFormoCast(formocast, task);
+                    Tensilelite::Formocast::PredictedPerformance predPerf
+                        = formocast.predictedPerformance();
+                    performance.push_back(std::pair(sol_idx, predPerf.microSeconds));
                 }
             }
+
+            auto comp = [](const std::pair<int, double>& e1, const std::pair<int, double>& e2) {
+                return e1.second < e2.second;
+            };
+            std::sort(performance.begin(), performance.end(), comp);
+
+            for(int i = 0; i < performance.size(); i++)
+            {
+                auto solution = solutionmap.at(performance[i].first);
+                rv.emplace_back(solution);
+                if(rv.size() == numSolutions)
+                {
+                    break;
+                }
+            }
+
             return rv;
         }
 

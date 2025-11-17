@@ -2,7 +2,7 @@
  *
  * MIT License
  *
- * Copyright (C) 2022-2024 Advanced Micro Devices, Inc. All rights reserved.
+ * Copyright (C) 2022-2025 Advanced Micro Devices, Inc. All rights reserved.
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
@@ -128,7 +128,12 @@ namespace TensileLite
                              = SolutionLibrarySearchType::DEFAULT) const override
         {
             SolutionSet<MySolution> rv;
-            const bool              streamK = Debug::Instance().useExperimentalSelection() == 2;
+
+            const bool streamK = Debug::Instance().useExperimentalSelection() == 2;
+            // const bool predictionLib = Debug::Instance().usePredictionLibrary();
+            const bool use_origami   = Debug::Instance().usePredictionSelection() == 0;
+            const bool use_formocast = Debug::Instance().usePredictionSelection() == 1;
+            const bool use_gridbased = Debug::Instance().usePredictionSelection() == 2;
 
             for(auto const& row : rows)
             {
@@ -136,6 +141,19 @@ namespace TensileLite
                     continue;
 
                 if(row.first.value->type() == "AMDGPU" && !row.first(problem, hardware))
+                    continue;
+
+                // if(predictionLib && ((row.first.value->type() == "EqualityMatching")
+                //                      || (row.first.value->type() == "RangeMatching")))
+                //     continue;
+
+                if(row.first.value->type() == "OrigamiMatching" && !use_origami)
+                    continue;
+
+                if(row.first.value->type() == "FormoCastMatching" && !use_formocast)
+                    continue;
+
+                if(row.first.value->type() == "GridBasedMatching" && !use_gridbased)
                     continue;
 
                 auto rowSolutions = row.second->findAllSolutions(problem, hardware, searchType);
@@ -176,16 +194,30 @@ namespace TensileLite
                                                             int numSolutions) const override
         {
             SolutionVector<MySolution> rv, solutions;
-            const bool                 streamK = Debug::Instance().useExperimentalSelection() == 2;
-            const bool                 predictionLib = Debug::Instance().usePredictionLibrary();
+
+            const bool streamK       = Debug::Instance().useExperimentalSelection() == 2;
+            const bool predictionLib = Debug::Instance().usePredictionLibrary();
+            const bool use_origami   = Debug::Instance().usePredictionSelection() == 0;
+            const bool use_formocast = Debug::Instance().usePredictionSelection() == 1;
+            const bool use_gridbased = Debug::Instance().usePredictionSelection() == 2;
+            // const bool request_neg1  = true;
 
             for(auto const& row : rows)
             {
                 if(row.first.value->type() == "ExperimentalStreamK" && !streamK)
                     continue;
 
-                if(predictionLib && ((row.first.value->type() == "EqualityMatching") 
+                if(predictionLib && ((row.first.value->type() == "EqualityMatching")
                                      || (row.first.value->type() == "RangeMatching")))
+                    continue;
+
+                if(row.first.value->type() == "OrigamiMatching" && !use_origami)
+                    continue;
+
+                if(row.first.value->type() == "FormoCastMatching" && !use_formocast)
+                    continue;
+
+                if(row.first.value->type() == "GridBasedMatching" && !use_gridbased)
                     continue;
 
                 if(row.first(problem, hardware))
@@ -199,6 +231,11 @@ namespace TensileLite
                             sol->tag = MySolution::MatchingTag::Equal;
 
                     rv.insert(std::end(rv), std::begin(solutions), std::end(solutions));
+
+                    // TODO: Refine this to prevent from go to getAll
+                    // if(request_neg1 && rv.size())
+                    //     return rv;
+
                     if(rv.size() == numSolutions)
                         return rv;
                 }

@@ -56,6 +56,8 @@ namespace TensileLite
 
         bool usePredictionLibrary() const;
 
+        int usePredictionSelection() const;
+
         bool printLibraryLogicIndex() const;
 
         bool naivePropertySearch() const;
@@ -83,6 +85,8 @@ namespace TensileLite
         bool gridBasedBatchExp() const;
 
         bool disableStaggerU() const;
+
+        // bool requestSoltionsNeg1() const;
 
         __attribute__((always_inline)) inline void markerStart(const char* name) const
         {
@@ -126,6 +130,7 @@ namespace TensileLite
         int         m_experimentSelection = 0;
         int         m_solution_index      = -1;
         bool        m_predictionLib       = false;
+        int         m_predictionSelection = 0; // 0: origami, 1: formocast, 2: gridbased
         std::string m_metric              = "";
         int         m_gridbasedTopSols    = 1;
         bool        m_benchmark           = false;
@@ -133,6 +138,7 @@ namespace TensileLite
         bool        m_gridbasedBatchExp   = false;
         bool        m_printMarker         = false;
         bool        m_disableStaggerU     = false;
+        // bool        m_request_neg1        = false; // mark if request = -1, to distiush from 65535
 
         Debug();
     };
