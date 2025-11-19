@@ -474,7 +474,7 @@ class MasterSolutionLibrary:
                 library.rows.append({"predicate": formocastPredicate, "library": formocastLib})
 
             elif d["LibraryType"] == "Prediction":
-                predicate = Properties.Predicate(tag="PredictionMatching") # TODO Temp
+                predicate = Properties.Predicate(tag="PredictionMatching") # So that FreeSize / Predication can co-exist
 
                 predictionLib = PredictionLibrary.FromOriginalState(d["Library"], solutions)
                 library = PredicateLibrary(tag="Problem")

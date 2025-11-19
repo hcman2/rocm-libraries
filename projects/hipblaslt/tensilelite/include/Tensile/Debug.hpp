@@ -27,6 +27,7 @@
 #pragma once
 
 #include <cstdlib>
+#include <set>
 #include <string>
 #ifdef Tensile_ENABLE_MARKER
 #include <roctracer/roctx.h>
@@ -36,6 +37,8 @@
 
 namespace TensileLite
 {
+    using StringSet = std::set<std::string>;
+
     /**
      * @brief Common place for defining flags which enable debug behaviour.
      */
@@ -86,7 +89,9 @@ namespace TensileLite
 
         bool disableStaggerU() const;
 
-        // bool requestSoltionsNeg1() const;
+        StringSet excludedLibFromGetAll() const;
+
+        void setExcludedLibFromGetAll(StringSet& excludedSet);
 
         __attribute__((always_inline)) inline void markerStart(const char* name) const
         {
@@ -138,7 +143,7 @@ namespace TensileLite
         bool        m_gridbasedBatchExp   = false;
         bool        m_printMarker         = false;
         bool        m_disableStaggerU     = false;
-        // bool        m_request_neg1        = false; // mark if request = -1, to distiush from 65535
+        StringSet   m_excludedFromGetAll;
 
         Debug();
     };

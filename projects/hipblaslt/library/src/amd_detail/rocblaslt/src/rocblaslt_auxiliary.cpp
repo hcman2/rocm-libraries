@@ -49,6 +49,8 @@
 #include "tensile_host.hpp"
 #include "utility.hpp"
 
+#include <Tensile/Debug.hpp>
+
 #include <hip/hip_runtime_api.h>
 #include <map>
 #include <utility>
@@ -100,14 +102,19 @@ inline bool
                                      int&                               AlgoCount,
                                      bool                               override_option)
 {
+    log_api(__func__, "Entering function");
 
     int index = -1;
+    int duplicated_counts = 0;
 
     for(int i = 0; i < AlgoCount; i++)
     {
         if(*(int*)(heuristicResultsArray[i].algo.data)
            == *(int*)(SolutionsResult->algo.data)) //solution index
+        {
+            ++duplicated_counts;
             index = i;
+        }
     }
 
     if(override_option && index != -1)
@@ -117,6 +124,8 @@ inline bool
             heuristicResultsArray[i] = heuristicResultsArray[i + 1];
         }
     }
+
+    log_api(__func__, "Done: duplicated counts", duplicated_counts);
 
     return (index == -1) ? false : true;
 }
@@ -1840,11 +1849,16 @@ rocblaslt_status
             matmul_desc->bias = nullptr;
         log_api(__func__, "returnAlgoCount", *returnAlgoCount);
 
-        // Try to get size independent solutions from getAllSolutions(),
-        // But don't do this if requested_solution is actually -1, which means we get what we have
-        // otherwise the getAll and check_duplicated are simply wasting time
-        if((requestedAlgoCount > *returnAlgoCount) && !real_requested_count_neg1)
+        static TensileLite::StringSet emptySet({});
+        static TensileLite::StringSet defExcludedSet({"GridBasedMatching", "PredictionMatching"});
+
+        // Try to get size independent solutions from getAllSolutions()
+        if(requestedAlgoCount > *returnAlgoCount)
         {
+            // set excluded lib here: if the #-returned < #-requested, we'll call getAll.
+            // But in that case, we don't need to get GridBased or Prediction which are already returned here
+            TensileLite::Debug::Instance().setExcludedLibFromGetAll(defExcludedSet);
+
             std::vector<rocblaslt_matmul_heuristic_result> allSolutionsResults;
             if(rocblaslt_status_success
                == getAllSolutions(prob, handle, allSolutionsResults, pref->max_workspace_bytes))
@@ -1877,6 +1891,9 @@ rocblaslt_status
 
                 log_api(__func__, "final returnAlgoCount", *returnAlgoCount);
             }
+
+            // reset
+            TensileLite::Debug::Instance().setExcludedLibFromGetAll(emptySet);
         }
 
         if(status != rocblaslt_status_success)
@@ -2089,11 +2106,18 @@ rocblaslt_status
         {
             throw status;
         }
-        // Try to get size independent solutions from getAllSolutions(),
-        // But don't do this if requested_solution is actually -1, which means we get what we have
-        // otherwise the getAll and check_duplicated are simply wasting time
-        if((requestedAlgoCount > results.size()) && !real_requested_count_neg1)
+
+        int duplicated_counts = 0;
+        static TensileLite::StringSet emptySet({});
+        static TensileLite::StringSet defExcludedSet({"GridBasedMatching", "PredictionMatching"});
+
+        // Try to get size independent solutions from getAllSolutions()
+        if(requestedAlgoCount > results.size())
         {
+            // set excluded lib here: if the #-returned < #-requested, we'll call getAll.
+            // But in that case, we don't need to get GridBased or Prediction which are already returned here
+            TensileLite::Debug::Instance().setExcludedLibFromGetAll(defExcludedSet);
+
             std::vector<rocblaslt_matmul_heuristic_result> allSolutionsResults;
             size_t                                         workspaceSizeInBytes = 0;
             if(rocblaslt_status_success
@@ -2109,7 +2133,10 @@ rocblaslt_status
                     for(int j = 0; j < oriReturnAlgoCount; j++)
                         if(*(int*)(results[j].algo.data)
                            == *(int*)(allSolutionsResults[i].algo.data)) //solution index
+                        {
+                            ++duplicated_counts;
                             duplicated_sol = true;
+                        }
                     rocblaslt::RocTuningV2* tuning = nullptr;
                     if(duplicated_sol == true
                        || rocblaslt_status_success
@@ -2127,7 +2154,12 @@ rocblaslt_status
 
                 log_api(__func__, "final returnAlgoCount", results.size());
             }
+
+            // reset
+            TensileLite::Debug::Instance().setExcludedLibFromGetAll(emptySet);
         }
+
+        log_api(__func__, "duplicated counts from getAll", duplicated_counts);
     }
     catch(const rocblaslt_status& status)
     {

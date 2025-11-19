@@ -56,6 +56,8 @@ namespace TensileLite
 
         bool predictAlgo = 0; // 0: origami, 1: formocast
 
+        mutable bool lastFindTopRetAll = false;
+
         static std::string Type()
         {
             return "Prediction";
@@ -281,6 +283,9 @@ namespace TensileLite
                     }
                 }
             }
+
+            // can't reach the requested number, means findTop already done its best
+            lastFindTopRetAll = (rv.size() < numSolutions);
             return rv;
         }
 
@@ -382,6 +387,8 @@ namespace TensileLite
                 }
             }
 
+            // can't reach the requested number, means findTop already done its best
+            lastFindTopRetAll = (rv.size() < numSolutions);
             return rv;
         }
 
@@ -394,6 +401,11 @@ namespace TensileLite
                 return findTopSolutionsOrigami(problem, hardware, numSolutions);
             else
                 return findTopSolutionsFormoCast(problem, hardware, numSolutions);
+        }
+
+        virtual bool lastFindTopAlreadyRetAll() const override
+        {
+            return lastFindTopRetAll;
         }
 
         virtual SolutionVector<MySolution>

@@ -48,6 +48,10 @@
 #include <roctracer/roctx.h>
 #endif
 
+#define TO_STR(x) #x
+#define ENUMSTR(x) x, TO_STR(x)
+#define STRENUM(x) TO_STR(x), x
+
 namespace TensileLite
 {
     enum class KERNELARGTYPE
@@ -310,6 +314,24 @@ namespace TensileLite
                                  DeviceUserArguments<float>*                      args);
 
     PerfModel perf;
+
+    static const std::map<ContractionSolution::MatchingTag, const char*>& MatchingTag2StringMap()
+    {
+        static const std::map<ContractionSolution::MatchingTag, const char*> MatchingTag2String
+            = {{ENUMSTR(ContractionSolution::MatchingTag::Equal)},
+               {ENUMSTR(ContractionSolution::MatchingTag::GridBased)},
+               {ENUMSTR(ContractionSolution::MatchingTag::Range)},
+               {ENUMSTR(ContractionSolution::MatchingTag::FreeSize)},
+               {ENUMSTR(ContractionSolution::MatchingTag::Prediction)},
+               {ENUMSTR(ContractionSolution::MatchingTag::Experimental)},
+               {ENUMSTR(ContractionSolution::MatchingTag::Others)}};
+        return MatchingTag2String;
+    }
+
+    std::string ContractionSolution::matchingTag() const
+    {
+        return MatchingTag2StringMap().at(tag);
+    }
 
     // check if this solution is a CU-Fallback solution for current hardware
     bool ContractionSolution::isFallbackForHW(Hardware const& hardware) const
