@@ -1,5 +1,5 @@
-- {function: matmul, M: 4352 , N: 256 , K: 2432 , transA: T, transB: T, scaleA: 0, scaleB: 0, scale_type: f32_r, a_type: f32_r, b_type: f32_r, c_type: f32_r, d_type: f32_r, compute_type: c_xf32_r, print_kernel_info: true, cold_iters: 10, iters: -1, initialization: hpl, use_gpu_timer: true, requested_solution_num: 50, rotating: 512}
-- {function: matmul, M: 6656 , N: 1920 , K: 4608 , transA: T, transB: T, scaleA: 0, scaleB: 0, scale_type: f32_r, a_type: f32_r, b_type: f32_r, c_type: f32_r, d_type: f32_r, compute_type: c_xf32_r, print_kernel_info: true, cold_iters: 10, iters: -1, initialization: hpl, use_gpu_timer: true, requested_solution_num: -1, rotating: 512}
-# TENSILE_PREDICTION_LIB=0 --> Use Origami Algorithm
-# TENSILE_PREDICTION_LIB=1 --> Use FormoCast Algorithm
-# TENSILE_PREDICTION_LIB=2 --> Use GridBased Algorithm
+- {function: matmul, M: 4352 , N: 256 , K: 2432 , transA: T, transB: T, scaleA: 0, scaleB: 0, scale_type: f32_r, a_type: f32_r, b_type: f32_r, c_type: f32_r, d_type: f32_r, compute_type: c_xf32_r, print_kernel_info: true, cold_iters: 10, iters: 500, initialization: hpl, use_gpu_timer: true, requested_solution_num: 50, rotating: 512}
+- {function: matmul, M: 6656 , N: 1920 , K: 4608 , transA: T, transB: T, scaleA: 0, scaleB: 0, scale_type: f32_r, a_type: f32_r, b_type: f32_r, c_type: f32_r, d_type: f32_r, compute_type: c_xf32_r, print_kernel_info: true, cold_iters: 10, iters: 500, initialization: hpl, use_gpu_timer: true, requested_solution_num: -1, rotating: 512}
+# TENSILE_PREDICTION_ALGO=0 TENSILE_PREDICTION_LIB=1 --> Use Origami Algorithm
+# TENSILE_PREDICTION_ALGO=1 TENSILE_PREDICTION_LIB=1 --> Use FormoCast Algorithm
+# TENSILE_PREDICTION_ALGO=2 TENSILE_PREDICTION_LIB=1 --> Use GridBased Algorithm
