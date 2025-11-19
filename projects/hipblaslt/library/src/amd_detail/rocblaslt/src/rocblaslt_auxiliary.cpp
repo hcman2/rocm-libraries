@@ -1751,6 +1751,8 @@ rocblaslt_status
                                         rocblaslt_matmul_heuristic_result heuristicResultsArray[],
                                         int*                              returnAlgoCount)
 {
+    bool real_requested_count_neg1 = false;
+
     // Check if handle is valid
     if(handle == nullptr || matmul_desc == nullptr || pref == nullptr || matA == nullptr
        || matB == nullptr || matC == nullptr || matD == nullptr)
@@ -1763,6 +1765,13 @@ rocblaslt_status
     {
         log_error(__func__, "invalid requested count", requestedAlgoCount);
         return rocblaslt_status_invalid_value;
+    }
+    // TODO: 65536 is defined in hipblaslt_arguments.hpp (client),
+    // would be better to put the define somewhere in library to avoid hardcoded here
+    if(requestedAlgoCount == 65536)
+    {
+        real_requested_count_neg1 = true;
+        log_info(__func__, "requestedAlgoCount is 65536, assuming reqeuested-solution is -1");
     }
     rocblaslt_status status = rocblaslt_status_success;
     try
@@ -1831,8 +1840,10 @@ rocblaslt_status
             matmul_desc->bias = nullptr;
         log_api(__func__, "returnAlgoCount", *returnAlgoCount);
 
-        //Try to get size independent solutions from getAllSolutions()
-        if(requestedAlgoCount > *returnAlgoCount)
+        // Try to get size independent solutions from getAllSolutions(),
+        // But don't do this if requested_solution is actually -1, which means we get what we have
+        // otherwise the getAll and check_duplicated are simply wasting time
+        if((requestedAlgoCount > *returnAlgoCount) && !real_requested_count_neg1)
         {
             std::vector<rocblaslt_matmul_heuristic_result> allSolutionsResults;
             if(rocblaslt_status_success
@@ -2023,10 +2034,19 @@ rocblaslt_status
                                      const int              requestedAlgoCount,
                                      std::vector<rocblaslt_matmul_heuristic_result>& results)
 {
+    bool real_requested_count_neg1 = false;
+
     if(requestedAlgoCount < 1)
     {
         log_error(__func__, "invalid requested count", requestedAlgoCount);
         return rocblaslt_status_invalid_value;
+    }
+    // TODO: 65536 is defined in hipblaslt_arguments.hpp (client),
+    // would be better to put the define somewhere in library to avoid hardcoded here
+    if(requestedAlgoCount == 65536)
+    {
+        real_requested_count_neg1 = true;
+        log_info(__func__, "requestedAlgoCount is 65536, assuming reqeuested-solution is -1");
     }
     if(gemmType == rocblaslt::RocGemmType::ROCBLASLT_GROUPED_GEMM)
     {
@@ -2069,8 +2089,10 @@ rocblaslt_status
         {
             throw status;
         }
-        //Try to get size independent solutions from getAllSolutions()
-        if(requestedAlgoCount > results.size())
+        // Try to get size independent solutions from getAllSolutions(),
+        // But don't do this if requested_solution is actually -1, which means we get what we have
+        // otherwise the getAll and check_duplicated are simply wasting time
+        if((requestedAlgoCount > results.size()) && !real_requested_count_neg1)
         {
             std::vector<rocblaslt_matmul_heuristic_result> allSolutionsResults;
             size_t                                         workspaceSizeInBytes = 0;

@@ -37,6 +37,7 @@
 #include <ostream>
 #include <tuple>
 
+// TODO- Move to somewhere in library to make sure client and library can access
 #define HIPBLASLT_MAX_REQUESTED_SOLUTION_NUM 65536
 
 // Predeclare enumerator
