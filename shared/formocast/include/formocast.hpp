@@ -151,6 +151,13 @@ namespace Tensilelite
             double B_L1_req;
             double A_L2_req;
             double B_L2_req;
+
+            // for == compare, can remove this if we are using MinTieBreakerInfo
+            bool operator==(MemoryAccessCosts const &rhs) const
+            {
+                return std::tie(mem_l1, mem_l2, mem_l3, mem_hbm, l1_hit, l2_hit, l3_hit, mem_overall, A_L1_req, B_L1_req, A_L2_req, B_L2_req) ==
+                       std::tie(rhs.mem_l1, rhs.mem_l2, rhs.mem_l3, rhs.mem_hbm, rhs.l1_hit, rhs.l2_hit, rhs.l3_hit, rhs.mem_overall, rhs.A_L1_req, rhs.B_L1_req, rhs.A_L2_req, rhs.B_L2_req);
+            };
         };
 
         struct TieBreakerInfo
@@ -168,6 +175,27 @@ namespace Tensilelite
             double mt1;
             uint32_t du;
             int    svw;
+
+            // for == compare, can remove this if we are using MinTieBreakerInfo
+            bool operator==(TieBreakerInfo const &rhs) const
+            {
+                return std::tie(memory, perf, preloop, loop, tail, store, gsu, lsu, math, mt0, mt1, du, svw) ==
+                       std::tie(rhs.memory, rhs.perf, rhs.preloop, rhs.loop, rhs.tail, rhs.store, rhs.gsu, rhs.lsu, rhs.math, rhs.mt0, rhs.mt1, rhs.du, rhs.svw);
+            };
+        };
+
+        // Use this "un-mutable" version for std::sort
+        struct MinTieBreakerInfo
+        {
+            double mt0;
+            double mt1;
+            uint32_t du;
+            int    svw;
+
+            bool operator==(MinTieBreakerInfo const &rhs) const
+            {
+                return std::tie(mt0, mt1, du, svw) == std::tie(rhs.mt0, rhs.mt1, rhs.du, rhs.svw);
+            };
         };
 
         struct ProblemInfo
@@ -186,7 +214,7 @@ namespace Tensilelite
             bool swizzleTensorB;
             origami::data_type_t dataType;
         };
-        
+
         void setProblem(ProblemInfo p);
         void setSolution(SizeMapping sm);
         void setHardware(std::shared_ptr<origami::hardware_t> hw);
@@ -203,7 +231,7 @@ namespace Tensilelite
                                        uint32_t WGs_per_tile_XCD,
                                        double &store,
                                        double &store_edge) const;
-        double calculateGSUOverhead(double M, double N, double K, 
+        double calculateGSUOverhead(double M, double N, double K,
                                     double NumBatches, double GlobalSplitU,
                                     uint32_t gsuMethod, ProblemInfo problem,
                                     const HardwareConstants& hw_consts,
@@ -229,8 +257,8 @@ namespace Tensilelite
                                    uint32_t numWave0, uint32_t numWave1,
                                    int NLCA, int NLCB) const;
         double getLoopOverall(const MemoryAccessCosts& mem, double math, uint32_t loopCnt, double pgr) const;
-        PredictedPerformance predictedPerformance() const;      
-        L1CacheHitRate 
+        PredictedPerformance predictedPerformance() const;
+        L1CacheHitRate
         computeL1CacheHitRate(const HardwareConstants& hw,
                             double MT0, double MT1, uint32_t bpeA, uint32_t bpeB,
                             int NTA, int NTB, uint32_t GRVWA, uint32_t GRVWB,
@@ -250,7 +278,7 @@ namespace Tensilelite
                                              int32_t  NTA,
                                              int32_t  NTB,
                                              bool     isGSUWGMRR) const;
-        L3CacheHitRate 
+        L3CacheHitRate
         computeL3CacheHitRate(double M, double N, double K, const HardwareConstants& hw,
                                           uint32_t bpeA, uint32_t bpeB, int NTA, int NTB,
                                           int N_WGs_total, int M_WGs_total, int N_WGs_per_tile, int M_WGs_per_tile) const;
@@ -258,6 +286,10 @@ namespace Tensilelite
         bool isBetter(ProblemInfo problem, TieBreakerInfo previousSolution) const;
         bool isBetter(TieBreakerInfo previousSolution, TieBreakerInfo currentSolution) const;
         TieBreakerInfo getTieBreakerInfo() const;
+
+        bool isBetter(MinTieBreakerInfo previousSolution, MinTieBreakerInfo currentSolution) const;
+        MinTieBreakerInfo getMinTieBreakerInfo() const;
+
         int checkLocalReadFIFOFull(int currentCycle, std::queue<int>& fifo, int bpRead, int numWaves, bool isStall) const;
         int checkLocalReadFinished(int currentCycle, std::queue<int>& fifo, int numLR) const;
         int checkGlobalReadFIFOFull(int currentCycle, std::queue<int>& fifo, int bpRead, int numWaves, bool isStall) const;
@@ -266,6 +298,8 @@ namespace Tensilelite
         SizeMapping sizeMapping;
         ProblemInfo problem;
         std::shared_ptr<origami::hardware_t> hardware;
+        // TODO- need this mutable member data? or we can just create a new one to return (i.e. MinTieBreakerInfo)
+        //  (std::sort with this data casues seg.fault. Using the un-mutable version "MinTieBreakerInfo" works fine)
         mutable TieBreakerInfo perfInfo;
     };
 } // namespace Tensilelite

@@ -464,7 +464,7 @@ namespace Tensilelite
         store_edge = store_edge_overall;
     }
 
-    Formocast::L1CacheHitRate 
+    Formocast::L1CacheHitRate
     Formocast::computeL1CacheHitRate(const HardwareConstants& hw,
                                           double MT0, double MT1, uint32_t bpeA, uint32_t bpeB,
                                           int NTA, int NTB, uint32_t GRVWA, uint32_t GRVWB,
@@ -569,8 +569,8 @@ namespace Tensilelite
         hr.tile1HitRate = B_L1_hit;
         return hr;
     }
-    
-    Formocast::L3CacheHitRate 
+
+    Formocast::L3CacheHitRate
     Formocast::computeL3CacheHitRate(double M, double N, double K, const HardwareConstants& hw,
                                           uint32_t bpeA, uint32_t bpeB, int NTA, int NTB,
                                           int N_WGs_total, int M_WGs_total, int N_WGs_per_tile, int M_WGs_per_tile) const
@@ -880,7 +880,7 @@ namespace Tensilelite
             auto currSol = getTieBreakerInfo();
             auto currSkinny = currSol.mt0 * currSol.du / M;
             auto prevSkinny = previousSolution.mt0 * previousSolution.du / M;
-            if (currSol.mt1 == N && currSkinny > prevSkinny) 
+            if (currSol.mt1 == N && currSkinny > prevSkinny)
             {
                 return true;
             }
@@ -890,7 +890,7 @@ namespace Tensilelite
             auto currSol = getTieBreakerInfo();
             auto currSkinny = currSol.mt1 * currSol.du / M;
             auto prevSkinny = previousSolution.mt1 * previousSolution.du / M;
-            if (currSol.mt0 == M && currSkinny > prevSkinny) 
+            if (currSol.mt0 == M && currSkinny > prevSkinny)
             {
                 return true;
             }
@@ -912,6 +912,10 @@ namespace Tensilelite
     //   False doesn't means worse, means tie (equal) --> IMPORTANT note since this would be used in std::sort
     bool Formocast::isBetter(TieBreakerInfo previousSolution, TieBreakerInfo currentSolution) const
     {
+        // just early return, return true or false might both be fine
+        if(previousSolution == currentSolution)
+            return false;
+
         double M = problem.M;
         double N = problem.N;
         double NumBatches = problem.NumBatches;
@@ -923,7 +927,7 @@ namespace Tensilelite
         {
             auto currSkinny = currentSolution.mt0 * currentSolution.du / M;
             auto prevSkinny = previousSolution.mt0 * previousSolution.du / M;
-            if (currentSolution.mt1 == N && currSkinny > prevSkinny) 
+            if (currentSolution.mt1 == N && currSkinny > prevSkinny)
             {
                 return true;
             }
@@ -932,7 +936,7 @@ namespace Tensilelite
         {
             auto currSkinny = currentSolution.mt1 * currentSolution.du / M;
             auto prevSkinny = previousSolution.mt1 * previousSolution.du / M;
-            if (currentSolution.mt0 == M && currSkinny > prevSkinny) 
+            if (currentSolution.mt0 == M && currSkinny > prevSkinny)
             {
                 return true;
             }
@@ -950,6 +954,57 @@ namespace Tensilelite
     Formocast::TieBreakerInfo Formocast::getTieBreakerInfo() const
     {
         return perfInfo;
+    }
+
+    bool Formocast::isBetter(MinTieBreakerInfo previousSolution, MinTieBreakerInfo currentSolution) const
+    {
+        // just early return, return true or false might both be fine
+        if(previousSolution == currentSolution)
+            return false;
+
+        double M = problem.M;
+        double N = problem.N;
+        double NumBatches = problem.NumBatches;
+        double K = problem.K;
+
+        if (N <= 32 && M >= 1024 && K >= 1024)
+        {
+            auto currSkinny = currentSolution.mt0 * currentSolution.du / M;
+            auto prevSkinny = previousSolution.mt0 * previousSolution.du / M;
+            if (currentSolution.mt1 == N && currSkinny > prevSkinny)
+            {
+                return true;
+            }
+        }
+        if (M <= 32 && N >= 1024 && K >= 1024)
+        {
+            auto currSkinny = currentSolution.mt1 * currentSolution.du / M;
+            auto prevSkinny = previousSolution.mt1 * previousSolution.du / M;
+            if (currentSolution.mt0 == M && currSkinny > prevSkinny)
+            {
+                return true;
+            }
+        }
+        if (NumBatches == 1 && K <= 512 && M >= 1024 && N >= 1024)
+        {
+            if (currentSolution.svw > previousSolution.svw)
+            {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    Formocast::MinTieBreakerInfo Formocast::getMinTieBreakerInfo() const
+    {
+        MinTieBreakerInfo tbInfo;
+
+        tbInfo.mt0 = perfInfo.mt0;
+        tbInfo.mt1 = perfInfo.mt1;
+        tbInfo.du  = perfInfo.du;
+        tbInfo.svw = perfInfo.svw;
+
+        return tbInfo;
     }
 
     Formocast::PredictedPerformance
@@ -977,7 +1032,7 @@ namespace Tensilelite
         HardwareConstants hw_consts = getHardwareConstants();
 
         // 3. Variables directly from sizeMapping
-        
+
         // Basic tile and workgroup configuration
         double MT0 = sizeMapping.macroTile[0];
         double MT1 = sizeMapping.macroTile[1];
@@ -1011,7 +1066,7 @@ namespace Tensilelite
         // NLCA/B is used for non-TN cases to calculate load requests.
         int NLCA = sizeMapping.NumLoadsCoalescedA;
         int NLCB = sizeMapping.NumLoadsCoalescedB;
-        
+
         //GlobalSplitU
         uint32_t GlobalSplitU = sizeMapping.globalSplitU;
         //LocalSplitU
@@ -1114,7 +1169,7 @@ namespace Tensilelite
         // 6. Calculate Store Performance (D matrix writes)
         double store, store_edge;
         calculateStorePerformance(M, N, NumBatches, MT0, MT1, GWVWD, bpeD, hw_consts, WGs_per_tile, WGs_per_tile_XCD, store, store_edge);
-        
+
         // 7. Calculate GSU Overhead
         double storeGSU = store * 2; //FIXME: incorrect
         auto vgprUsageCheck = MT0 * MT1 / miSize / miSize;
@@ -1166,7 +1221,7 @@ namespace Tensilelite
                                                  prefetch_mem,
                                                  numAccPerWave);
         double preLoopCost = hw_consts.initialCost + prefetch;
-        
+
         // 11. Calculate loop Performance
         double math_overall = math_clk / hw_consts.math_frequency;
         double loop_overall = getLoopOverall(mem_costs, math_overall, loopCnt, PGR);
@@ -1193,7 +1248,7 @@ namespace Tensilelite
             tail_overall = (mem_costs.mem_hbm + math_overall);
             perf += tail_overall;
         }
-        
+
         // 14. Apply CU Occupancy
         perf = resolveOccupancy(hw_consts, perf, prefetch, loop_overall + tail_overall, store, num_tiles, CUOccupancy);
 

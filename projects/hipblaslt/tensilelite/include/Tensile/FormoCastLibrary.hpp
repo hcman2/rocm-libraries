@@ -27,6 +27,7 @@
 #pragma once
 
 #include <set>
+#include <tuple>
 #include <vector>
 
 #include <formocast.hpp>
@@ -42,6 +43,9 @@ namespace TensileLite
      * specific sizes. At runtime, we find the benchmarked size that is closest
      * to the size asked for.
      */
+
+    using MinTBInfo         = Tensilelite::Formocast::MinTieBreakerInfo;
+    using FormoCastPerfInfo = std::tuple<int, double, MinTBInfo>;
     template <typename MyProblem, typename MySolution = typename MyProblem::Solution>
     struct ProblemFormoCastLibrary : public SolutionLibrary<MyProblem, MySolution>
     {
@@ -120,6 +124,9 @@ namespace TensileLite
             sm.LocalSplitU        = sizeMapping.LocalSplitU;
 
             sm.waveGroup = sizeMapping.waveGroup;
+
+            formocast.setProblem(problemInfo);
+            formocast.setSolution(sm);
         }
 
         virtual std::shared_ptr<MySolution> getSolutionByIndex(MyProblem const& problem,
@@ -198,12 +205,10 @@ namespace TensileLite
             // TODO- Temp
             std::cout << "Entering FormoCastLibrary::findTopSolutions()" << std::endl;
 
-            bool                                debug = Debug::Instance().printPropertyEvaluation();
-            SolutionVector<MySolution>          rv;
-            Tensilelite::Formocast              formocast;
-            std::vector<std::pair<int, double>> performance;
-            // TODO- tie breaker
-            // std::vector<Tensilelite::Formocast::TieBreakerInfo> tbInfo;
+            bool                           debug = Debug::Instance().printPropertyEvaluation();
+            SolutionVector<MySolution>     rv;
+            Tensilelite::Formocast         formocast;
+            std::vector<FormoCastPerfInfo> perfMetric; // sol_idx, micro-s, tieBreakerInfo
             for(auto const& row : solutionmap)
             {
                 int  sol_idx  = row.first;
@@ -219,20 +224,41 @@ namespace TensileLite
                 {
                     Task task(hardware, problem, *solution);
                     setupFormoCast(formocast, task);
-                    Tensilelite::Formocast::PredictedPerformance predPerf
-                        = formocast.predictedPerformance();
-                    performance.push_back(std::pair(sol_idx, predPerf.microSeconds));
+                    // Note:
+                    //  formocast.predictedPerformance();
+                    //  formocast.getTieBreakerInfo(); // or getMinTieBreakerInfo()
+                    perfMetric.push_back(
+                        std::make_tuple(sol_idx,
+                                        formocast.predictedPerformance().microSeconds,
+                                        formocast.getMinTieBreakerInfo()));
                 }
             }
 
-            auto comp = [](const std::pair<int, double>& e1, const std::pair<int, double>& e2) {
-                return e1.second < e2.second;
-            };
-            std::sort(performance.begin(), performance.end(), comp);
+            // This sorting function handles m-second, first, and then tie-breaker
+            auto comp
+                = [&formocast](const FormoCastPerfInfo& metric1, const FormoCastPerfInfo& metric2) {
+                      double ms1 = std::get<1>(metric1);
+                      double ms2 = std::get<1>(metric2);
+                      // first criteria is tie, need to use tie-breaker for the next criteria
+                      if(ms1 == ms2)
+                      {
+                          auto& tbInfo1 = std::get<2>(metric1);
+                          auto& tbInfo2 = std::get<2>(metric2);
+                          // important guard for "strict-weak-ordering" in sorting...
+                          if(tbInfo1 == tbInfo2)
+                              return false;
 
-            for(int i = 0; i < performance.size(); i++)
+                          // NOTE: isBetter=TRUE means 2nd is faster, so we return NOT isBetter()
+                          return !formocast.isBetter(tbInfo1, tbInfo2);
+                      }
+                      // sort from: (small -> large) = (faster -> slower) , return TRUE means metric1 is faster
+                      return ms1 < ms2;
+                  };
+            std::sort(perfMetric.begin(), perfMetric.end(), comp);
+
+            for(int i = 0; i < perfMetric.size(); i++)
             {
-                auto solution = solutionmap.at(performance[i].first);
+                auto solution = solutionmap.at(std::get<0>(perfMetric[i]));
                 rv.emplace_back(solution);
                 if(rv.size() == numSolutions)
                 {
