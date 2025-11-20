@@ -1047,12 +1047,14 @@ namespace Tensilelite
         }
         if (MT0 - M >= 16 || MT1 - N >= 16)
         {
+            //std::cout<<"M:"<<M<<",N:"<<N<<",MT0:"<<MT0<<",MT1:"<<MT1<<std::endl;
             pp.microSeconds = 9999999.9;
             pp.hitRate = 0;
             return pp;
         }
         if (((K >= 64 && depthU <=32) || (K <= 32 && depthU > 32) || (K > 32 && depthU > K)) && NumBatches < hw_consts.NumCUs && sizeMapping.matrixInstruction[2] >= 32)
         {
+            //std::cout<<"K:"<<K<<",depthU:"<<depthU<<",NumBatches:"<<NumBatches<<",sizeMapping.matrixInstruction[3]:"<<sizeMapping.matrixInstruction[3]<<std::endl;
             pp.microSeconds = 9999999.9;
             pp.hitRate = 0;
             return pp;

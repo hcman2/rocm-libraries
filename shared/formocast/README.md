@@ -17,6 +17,6 @@ PredictionThreshold is from 0.0~1.0
 ### To run an tf32 example with hipblaslt-bench,
 1. Go to the hipblaslt folder.
 2. Run command "./install.sh -c -a gfx950 --skip_rocroller --logic-yaml-filter *gfx950/**/*_S_MX_*"
-3. Run command "TENSILE_PREDICTION_ALGO=1 TENSILE_PREDICTION_LIB=1 ./hipblaslt-bench --yaml ../../../tensilelite/tests/tf32_tt_test.yaml"
+3. Run command "TENSILE_PREDICTION_ALGO=1 TENSILE_PREDICTION_LIB=1 ./hipblaslt-bench --yaml ./tensilelite/tests/tf32_tt_test.yaml"
 
 Note that this 2 examples are the functionality purpose. For better performance, we need to investigate more about the gfx950 platform, find a better solution pool, and optimize the selection time.
