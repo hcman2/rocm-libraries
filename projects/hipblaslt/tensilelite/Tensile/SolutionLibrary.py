@@ -500,9 +500,9 @@ class MasterSolutionLibrary:
                 library.rows.append({"predicate": predicate, "library": predictionLib})
 
                 # Origami can be used by formocast as well
-                formocastLib = FormoCastLibrary.FromOriginalState(d["Library"], solutions)
-                formocastPredicate = Properties.Predicate(tag="FormoCastMatching")
-                library.rows.append({"predicate": formocastPredicate, "library": formocastLib})
+                # formocastLib = FormoCastLibrary.FromOriginalState(d["Library"], solutions)
+                # formocastPredicate = Properties.Predicate(tag="FormoCastMatching")
+                # library.rows.append({"predicate": formocastPredicate, "library": formocastLib})
 
             elif d["LibraryType"] == "MLPClassification":
                 predicate = Properties.Predicate(tag="TruePred")
