@@ -209,6 +209,7 @@ namespace TensileLite
             SolutionVector<MySolution>     rv;
             Tensilelite::Formocast         formocast;
             std::vector<FormoCastPerfInfo> perfMetric; // sol_idx, micro-s, tieBreakerInfo
+            double                         bestMS = std::numeric_limits<double>::max();
             for(auto const& row : solutionmap)
             {
                 int  sol_idx  = row.first;
@@ -227,35 +228,38 @@ namespace TensileLite
                     // Note:
                     //  formocast.predictedPerformance();
                     //  formocast.getTieBreakerInfo(); // or getMinTieBreakerInfo()
+                    auto perf = formocast.predictedPerformance().microSeconds;
+                    bestMS    = std::min(bestMS, perf);
                     perfMetric.push_back(
-                        std::make_tuple(sol_idx,
-                                        formocast.predictedPerformance().microSeconds,
-                                        formocast.getMinTieBreakerInfo()));
+                        std::make_tuple(sol_idx, perf, formocast.getMinTieBreakerInfo()));
                 }
             }
 
-            // This sorting function handles m-second, first, and then tie-breaker
-            auto comp
-                = [&formocast](const FormoCastPerfInfo& metric1, const FormoCastPerfInfo& metric2) {
-                      double ms1 = std::get<1>(metric1);
-                      double ms2 = std::get<1>(metric2);
-                      // first criteria is tie, need to use tie-breaker for the next criteria
-                      if(ms1 == ms2)
-                      {
-                          auto& tbInfo1 = std::get<2>(metric1);
-                          auto& tbInfo2 = std::get<2>(metric2);
-                          // important guard for "strict-weak-ordering" in sorting...
-                          if(tbInfo1 == tbInfo2)
-                              return false;
+            // This sorting function handles m-second first, and then tie-breaker
+            auto comp = [&formocast, &bestMS](const FormoCastPerfInfo& metric1,
+                                              const FormoCastPerfInfo& metric2) {
+                double ms1 = std::get<1>(metric1);
+                double ms2 = std::get<1>(metric2);
+                // Version 1: first criteria is tie, need to use tie-breaker for the next criteria
+                //if(ms1 == ms2)
+                // Version 2: we only use tie-breaker to compare for those "faster enough" ones
+                if(ms1 < (1.1 * bestMS) && ms2 < (1.1 * bestMS))
+                {
+                    auto& tbInfo1 = std::get<2>(metric1);
+                    auto& tbInfo2 = std::get<2>(metric2);
+                    // guard for "strict-weak-ordering" in sorting...
+                    if(tbInfo1 == tbInfo2)
+                        return false;
 
-                          // NOTE: isBetter=TRUE means 2nd is faster, so we return NOT isBetter()
-                          return !formocast.isBetter(tbInfo1, tbInfo2);
-                      }
-                      // sort from: (small -> large) = (faster -> slower) , return TRUE means metric1 is faster
-                      return ms1 < ms2;
-                  };
+                    // NOTE:
+                    // isBetter=true means 2nd is faster, false means Equal
+                    // so we need to put tbInfo1 in the 2nd arg.
+                    return formocast.isBetter(tbInfo2, tbInfo1);
+                }
+                // sort from: (small -> large) = (faster -> slower) , return TRUE means metric1 is faster
+                return ms1 < ms2;
+            };
             std::sort(perfMetric.begin(), perfMetric.end(), comp);
-
             for(int i = 0; i < perfMetric.size(); i++)
             {
                 auto solution = solutionmap.at(std::get<0>(perfMetric[i]));

@@ -912,7 +912,7 @@ namespace Tensilelite
     //   False doesn't means worse, means tie (equal) --> IMPORTANT note since this would be used in std::sort
     bool Formocast::isBetter(TieBreakerInfo previousSolution, TieBreakerInfo currentSolution) const
     {
-        // just early return, return true or false might both be fine
+        // just early return, return false means equal
         if(previousSolution == currentSolution)
             return false;
 
@@ -956,9 +956,13 @@ namespace Tensilelite
         return perfInfo;
     }
 
+    // NB:
+    //  isBetter return
+    //   True means current is better than previous
+    //   False doesn't means worse, means tie (EQUAL) --> IMPORTANT note since this would be used in std::sort
     bool Formocast::isBetter(MinTieBreakerInfo previousSolution, MinTieBreakerInfo currentSolution) const
     {
-        // just early return, return true or false might both be fine
+        // just early return, return false means equal
         if(previousSolution == currentSolution)
             return false;
 
@@ -966,6 +970,8 @@ namespace Tensilelite
         double N = problem.N;
         double NumBatches = problem.NumBatches;
         double K = problem.K;
+
+        assert(M != 0);
 
         if (N <= 32 && M >= 1024 && K >= 1024)
         {
