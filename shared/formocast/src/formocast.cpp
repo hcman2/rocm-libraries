@@ -1734,13 +1734,21 @@ namespace Tensilelite
     {
         if(fifo.size() <= numLR)
             return currentCycle;
-        int latency = 12;
         int finalCycle = currentCycle;
+        //pop finisned LR
         while(fifo.size() > numLR)
         {
             int oldCycle = fifo.front();
-            finalCycle = std::max(finalCycle, oldCycle + latency);
-            fifo.pop();
+            if (oldCycle < currentCycle)
+                fifo.pop();
+            else
+                break;
+        }
+        //check non-finished LR
+        while(fifo.size() > numLR)
+        {
+            int oldCycle = fifo.front();
+            finalCycle = std::max(finalCycle, oldCycle);
         }
         return finalCycle;
     }
