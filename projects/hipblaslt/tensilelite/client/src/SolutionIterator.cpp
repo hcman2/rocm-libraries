@@ -28,6 +28,7 @@
 
 #include "ResultReporter.hpp"
 #include <Tensile/Debug.hpp>
+#include <Tensile/hip/HipHardware.hpp>
 
 #include <formocast.hpp>
 
@@ -175,7 +176,15 @@ namespace TensileLite
 
             problemInfo.swizzleTensorA = problem.swizzleTensorA();
             problemInfo.swizzleTensorB = problem.swizzleTensorB();
+
+            problemInfo.dataType = solution.getOrigamiDatatype(problem);
             return problemInfo;
+        }
+
+        static std::shared_ptr<origami::hardware_t> getHardware(Hardware const&         hardware)
+        {
+            hip::HipAMDGPU const* hipAMDGPU = dynamic_cast<hip::HipAMDGPU const*>(&hardware);
+            return hipAMDGPU->analyticalHardware;
         }
 
         static Tensilelite::Formocast::SizeMapping getSizeMapping(ContractionSolution&    solution,
@@ -298,8 +307,10 @@ namespace TensileLite
                         Tensilelite::Formocast::PredictedPerformance predPerf;
                         Tensilelite::Formocast::ProblemInfo problemInfo = getProblemInfo(*solution, *gemmProblem);
                         Tensilelite::Formocast::SizeMapping sizeMapping = getSizeMapping(*solution, *gemmProblem, *m_hardware);
+                        auto hwInfo = getHardware(*m_hardware);
                         formocast.setProblem(problemInfo);
                         formocast.setSolution(sizeMapping);
+                        formocast.setHardware(hwInfo);
                         predPerf = formocast.predictedPerformance();
                         tbInfo[i] = formocast.getTieBreakerInfo();
                         performance.push_back(std::pair(i,predPerf.microSeconds));

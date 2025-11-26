@@ -32,6 +32,7 @@
 #include <random>
 #include <cassert>
 #include <iostream>
+#include <cstring>
 
 namespace Tensilelite
 {
@@ -153,16 +154,12 @@ namespace Tensilelite
     {
         double result = 0.0;
 
-        double C115 = M;
-        double F115 = MT0;
-        double D115 = N;
-
-        double edge_size     = std::fmod(C115, F115);
-        double numWGsNonEdge = std::floor(C115 / F115);
-        result = D115 * ((numWGsNonEdge * ceiling_math(F115 / 32)) + ceiling_math(edge_size / 32));
+        double edge_size     = std::fmod(M, MT0);
+        double numWGsNonEdge = std::floor(M / MT0);
+        result = N * ((numWGsNonEdge * ceiling_math(MT0 / 32)) + ceiling_math(edge_size / 32));
 
         double maxMT1              = std::min(N, MT1);
-        double nonEdgeRequestPerMT = maxMT1 * (ceiling_math(F115 / 32));
+        double nonEdgeRequestPerMT = maxMT1 * (ceiling_math(MT0 / 32));
         double edgeRequestPerMT    = maxMT1 * ceiling_math(edge_size / 32);
         if(numWGsNonEdge > 0.0)
             non_edge_req = nonEdgeRequestPerMT;
@@ -183,24 +180,19 @@ namespace Tensilelite
     {
         double result = 0.0;
 
-        double D115 = N;
-        double C115 = M;
-        double F115 = MT0;
-        double G115 = SVW;
+        double edge_size     = std::fmod(M, MT0);
+        double numWGsNonEdge = std::floor(M / MT0);
+        double M_MOD_16SVW   = std::fmod(M, 16 * SVW);
 
-        double edge_size     = std::fmod(C115, F115);
-        double numWGsNonEdge = std::floor(C115 / F115);
-        double M_MOD_16SVW   = std::fmod(C115, 16 * G115);
+        double non_edge_0 = MT0 * 2 / 64 * ceiling_math(64 / (16 * 2 * SVW));
+        double edge_0     = (ceiling_math(std::floor(edge_size / (16 * SVW)) * (16 * SVW) * 2 / 64
+                                      * ceiling_math(64 / (16 * 2 * SVW)))
+                         * SVW);
+        double edge_1     = (std::floor(M_MOD_16SVW * 2 / 64 * ceiling_math(64 / (16 * 2 * SVW)))
+                         * std::min(M_MOD_16SVW, SVW));
+        double edge_2     = (std::min(std::fmod(M, std::min(16 * SVW, 32.0)), SVW));
 
-        double non_edge_0 = F115 * 2 / 64 * ceiling_math(64 / (16 * 2 * G115));
-        double edge_0     = (ceiling_math(std::floor(edge_size / (16 * G115)) * (16 * G115) * 2 / 64
-                                      * ceiling_math(64 / (16 * 2 * G115)))
-                         * G115);
-        double edge_1     = (std::floor(M_MOD_16SVW * 2 / 64 * ceiling_math(64 / (16 * 2 * G115)))
-                         * std::min(M_MOD_16SVW, G115));
-        double edge_2     = (std::min(std::fmod(C115, std::min(16 * G115, 32.0)), G115));
-
-        result = D115 * ((numWGsNonEdge * non_edge_0) + (edge_0) + (edge_1) + (edge_2));
+        result = N * ((numWGsNonEdge * non_edge_0) + (edge_0) + (edge_1) + (edge_2));
 
         double maxMT1              = std::min(N, MT1);
         double nonEdgeRequestPerMT = maxMT1 * (non_edge_0);
@@ -223,84 +215,80 @@ namespace Tensilelite
                                           double& edge_req)
     {
         double result = 0.0;
-        double D115   = N;
-        double C115   = M;
-        double F115   = MT0;
-        double G115   = SVW;
 
-        double edge_size     = std::fmod(C115, F115);
-        double numWGsNonEdge = std::floor(C115 / F115);
+        double edge_size     = std::fmod(M, MT0);
+        double numWGsNonEdge = std::floor(M / MT0);
 
         double non_edge_0
-            = F115 / 16 * (-1) * (G115 == 1 ? 1 : 0) * (std::fmod(C115, 4) == 2 ? 1 : 0);
+            = MT0 / 16 * (-1) * (SVW == 1 ? 1 : 0) * (std::fmod(M, 4) == 2 ? 1 : 0);
         double non_edge_1
-            = F115 / 16 * (-4) * (G115 == 1 ? 1 : 0) * (std::fmod(C115, 16) == 8 ? 1 : 0);
+            = MT0 / 16 * (-4) * (SVW == 1 ? 1 : 0) * (std::fmod(M, 16) == 8 ? 1 : 0);
         double non_edge_2
-            = F115 / 16 * (-3) * (G115 == 1 ? 1 : 0) * (std::fmod(C115, 4) == 0 ? 1 : 0);
+            = MT0 / 16 * (-3) * (SVW == 1 ? 1 : 0) * (std::fmod(M, 4) == 0 ? 1 : 0);
         double non_edge_3
-            = F115 / 16 * (-12) * (G115 == 1 ? 1 : 0) * (std::fmod(C115, 16) == 0 ? 1 : 0);
-        double edge_0 = (std::floor(edge_size / (16 * G115)) * 3 * (G115 == 1 ? 1 : 0)
-                         * (std::fmod(C115, 2) == 1 ? 1 : 0));
-        double edge_1 = (std::floor(edge_size / (16 * G115)) * 2 * (G115 == 1 ? 1 : 0)
-                         * (std::fmod(C115, 4) == 2 ? 1 : 0));
-        double edge_2 = (std::floor(edge_size / (16 * G115)) * (-4) * (G115 == 1 ? 1 : 0)
-                         * (std::fmod(C115, 8) == 0 ? 1 : 0));
-        double edge_3 = (std::floor(edge_size / (16 * G115)) * 4 * (G115 == 1 ? 1 : 0)
-                         * (std::fmod(C115, 16) == 0 ? 1 : 0));
-        double edge_4 = (std::floor(edge_size / (16 * G115)) * (-12 * G115 * G115)
-                         * (G115 == 1 ? 1 : 0) * (std::fmod(C115, 16) == 0 ? 1 : 0));
+            = MT0 / 16 * (-12) * (SVW == 1 ? 1 : 0) * (std::fmod(M, 16) == 0 ? 1 : 0);
+        double edge_0 = (std::floor(edge_size / (16 * SVW)) * 3 * (SVW == 1 ? 1 : 0)
+                         * (std::fmod(M, 2) == 1 ? 1 : 0));
+        double edge_1 = (std::floor(edge_size / (16 * SVW)) * 2 * (SVW == 1 ? 1 : 0)
+                         * (std::fmod(M, 4) == 2 ? 1 : 0));
+        double edge_2 = (std::floor(edge_size / (16 * SVW)) * (-4) * (SVW == 1 ? 1 : 0)
+                         * (std::fmod(M, 8) == 0 ? 1 : 0));
+        double edge_3 = (std::floor(edge_size / (16 * SVW)) * 4 * (SVW == 1 ? 1 : 0)
+                         * (std::fmod(M, 16) == 0 ? 1 : 0));
+        double edge_4 = (std::floor(edge_size / (16 * SVW)) * (-12 * SVW * SVW)
+                         * (SVW == 1 ? 1 : 0) * (std::fmod(M, 16) == 0 ? 1 : 0));
 
-        result += D115 / 64
+        result += N / 64
                   * ((numWGsNonEdge * non_edge_0) + (numWGsNonEdge * non_edge_1)
                      + (numWGsNonEdge * non_edge_2) + (numWGsNonEdge * non_edge_3) + (edge_0)
                      + (edge_1) + (edge_2) + (edge_3) + (edge_4));
 
-        double non_edge_4 = F115 / 32 * (G115 == 2 || G115 == 8 ? 139 : (G115 == 4 ? 82 : 0))
-                            * (G115 == 1 ? 0 : 1) * (std::fmod(C115, 2) == 1 ? 1 : 0);
-        double non_edge_5 = F115 / 16 * (G115 == 2 || G115 == 8 ? 3 : (G115 == 4 ? 2 : 0))
-                            * (G115 == 1 ? 0 : 1) * (std::fmod(C115, 4) == 2 ? 1 : 0);
-        double non_edge_6 = F115 / 16 * (G115 == 2 || G115 == 8 ? 2 : (G115 == 4 ? 0 : 0))
-                            * (G115 == 1 ? 0 : 1) * (std::fmod(C115, 8) == 4 ? 1 : 0);
-        double non_edge_7 = F115 / 16 * (G115 == 2 || G115 == 8 ? 4 : (G115 == 4 ? 0 : 0))
-                            * (G115 == 1 ? 0 : 1) * (std::fmod(C115, 16) == 8 ? 1 : 0);
+        double non_edge_4 = MT0 / 32 * (SVW == 2 || SVW == 8 ? 139 : (SVW == 4 ? 82 : 0))
+                            * (SVW == 1 ? 0 : 1) * (std::fmod(M, 2) == 1 ? 1 : 0);
+        double non_edge_5 = MT0 / 16 * (SVW == 2 || SVW == 8 ? 3 : (SVW == 4 ? 2 : 0))
+                            * (SVW == 1 ? 0 : 1) * (std::fmod(M, 4) == 2 ? 1 : 0);
+        double non_edge_6 = MT0 / 16 * (SVW == 2 || SVW == 8 ? 2 : (SVW == 4 ? 0 : 0))
+                            * (SVW == 1 ? 0 : 1) * (std::fmod(M, 8) == 4 ? 1 : 0);
+        double non_edge_7 = MT0 / 16 * (SVW == 2 || SVW == 8 ? 4 : (SVW == 4 ? 0 : 0))
+                            * (SVW == 1 ? 0 : 1) * (std::fmod(M, 16) == 8 ? 1 : 0);
         double non_edge_8
-            = F115 / 16 * (-4) * (G115 == 1 ? 0 : 1) * (std::fmod(C115, 8) == 0 ? 1 : 0);
-        double non_edge_9 = F115 / 16 * (G115 == 4 || G115 == 8 ? 0 : (G115 == 2 ? -8 : 0))
-                            * (G115 == 1 ? 0 : 1) * (std::fmod(C115, 16 * G115) == 0 ? 1 : 0);
-        double non_edge_10 = F115 / 16 * (G115 == 4 || G115 == 8 ? -8 : (G115 == 2 ? 0 : 0))
-                             * (G115 == 1 ? 0 : 1) * (std::fmod(C115, 4 * G115) == 0 ? 1 : 0);
-        double edge_5 = (std::floor(edge_size / (16 * G115)) * (-16 * G115 * G115)
-                         * (G115 == 1 ? 0 : 1) * (std::fmod(C115, 16 * G115) == 8 * G115 ? 1 : 0));
-        double edge_6 = (std::floor(edge_size / (16 * G115)) * (-48 * G115 * G115)
-                         * (G115 == 1 ? 0 : 1) * (std::fmod(C115, 16 * G115) == 0 ? 1 : 0));
+            = MT0 / 16 * (-4) * (SVW == 1 ? 0 : 1) * (std::fmod(M, 8) == 0 ? 1 : 0);
+        double non_edge_9 = MT0 / 16 * (SVW == 4 || SVW == 8 ? 0 : (SVW == 2 ? -8 : 0))
+                            * (SVW == 1 ? 0 : 1) * (std::fmod(M, 16 * SVW) == 0 ? 1 : 0);
+        double non_edge_10 = MT0 / 16 * (SVW == 4 || SVW == 8 ? -8 : (SVW == 2 ? 0 : 0))
+                             * (SVW == 1 ? 0 : 1) * (std::fmod(M, 4 * SVW) == 0 ? 1 : 0);
+        double edge_5 = (std::floor(edge_size / (16 * SVW)) * (-16 * SVW * SVW)
+                         * (SVW == 1 ? 0 : 1) * (std::fmod(M, 16 * SVW) == 8 * SVW ? 1 : 0));
+        double edge_6 = (std::floor(edge_size / (16 * SVW)) * (-48 * SVW * SVW)
+                         * (SVW == 1 ? 0 : 1) * (std::fmod(M, 16 * SVW) == 0 ? 1 : 0));
 
-        result += D115 / 64
+        result += N / 64
                   * ((numWGsNonEdge * non_edge_4) + (numWGsNonEdge * non_edge_5)
                      + (numWGsNonEdge * non_edge_6) + (numWGsNonEdge * non_edge_7)
                      + (numWGsNonEdge * non_edge_8) + (numWGsNonEdge * non_edge_9)
                      + (numWGsNonEdge * non_edge_10) + (edge_5) + (edge_6));
 
-        double M_MOD_16SVW = std::fmod(C115, 16 * G115);
-        double M_MOD_8VW   = std::fmod(C115, 8 * G115);
-        double M_MOD_4SVW  = std::fmod(C115, 4 * G115);
-        double M_MOD_4     = std::fmod(C115, 4);
+        double M_MOD_16SVW = std::fmod(M, 16 * SVW);
+        double M_MOD_8VW   = std::fmod(M, 8 * SVW);
+        double M_MOD_4SVW  = std::fmod(M, 4 * SVW);
+        double M_MOD_4     = std::fmod(M, 4);
 
-        double non_edge_11 = F115 / 16 * (16 - (G115 == 1 ? 1 : 4));
+        double non_edge_11 = MT0 / 16 * (16 - (SVW == 1 ? 1 : 4));
         double edge_7
-            = (std::floor(edge_size / (16 * G115)) * (12 * G115 * G115) * (G115 == 1 ? 1 : 4));
-        double edge_8 = ((M_MOD_16SVW >= 4 * G115
-                              ? (M_MOD_16SVW - 4 * G115) * G115
-                                    * (G115 == 1 && M_MOD_4 == 0 ? 1 : 4) * (M_MOD_8VW == 0 ? 0 : 1)
+            = (std::floor(edge_size / (16 * SVW)) * (12 * SVW * SVW) * (SVW == 1 ? 1 : 4));
+        double edge_8 = ((M_MOD_16SVW >= 4 * SVW
+                              ? (M_MOD_16SVW - 4 * SVW) * SVW
+                                    * (SVW == 1 && M_MOD_4 == 0 ? 1 : 4) * (M_MOD_8VW == 0 ? 0 : 1)
                               : 0));
 
-        result += D115 / 64 * ((numWGsNonEdge * non_edge_11) + (edge_7) + (edge_8));
+        result += N / 64 * ((numWGsNonEdge * non_edge_11) + (edge_7) + (edge_8));
 
-        double non_edge_12 = ((F115 * 2) / 64) * (G115 == 1 || G115 == 4 ? 2 : 1);
-        double edge_9      = (std::floor(edge_size / (16 * G115)) * (G115 == 1 ? 1 : 4 * G115));
-        double edge_10     = (M_MOD_16SVW < 4 * G115 ? M_MOD_4SVW : 0);
-        double edge_11 = (M_MOD_16SVW >= 4 * G115 ? (G115 == 1 && M_MOD_4 == 0 ? 1 : 4 * G115) : 0);
+        double non_edge_12 = ((MT0 * 2) / 64) * (SVW == 1 || SVW == 4 ? 2 : 1);
+        double edge_9      = (std::floor(edge_size / (16 * SVW)) * (SVW == 1 ? 1 : 4 * SVW));
+        double edge_10     = (M_MOD_16SVW < 4 * SVW ? M_MOD_4SVW : 0);
+        double edge_11 = (M_MOD_16SVW >= 4 * SVW ? (SVW == 1 && M_MOD_4 == 0 ? 1 : 4 * SVW) : 0);
 
-        result += D115 * ((numWGsNonEdge * non_edge_12) + (edge_9) + (edge_10) + (edge_11));
+        result += N * ((numWGsNonEdge * non_edge_12) + (edge_9) + (edge_10) + (edge_11));
 
         double maxMT1              = std::min(N, MT1);
         double nonEdgeRequestPerMT = maxMT1 / 64
@@ -365,7 +353,6 @@ namespace Tensilelite
         double L1_req     = 0.0;
         tcc_ea0_coalsced = 1.0;
         L1_req = std::ceil(MTX / NumLoadsCoalesced * bpe / L1BusWidthPerCU) * NumLoadsCoalesced * DU;
-        //tcc_ea0_coalsced = ceilDivide((uint32_t)L1CacheLineSize, (uint32_t)MTX / NumLoadsCoalesced * bpe);
         if(L1CacheLineSize > MTX / NumLoadsCoalesced * bpe)
             tcc_ea0_coalsced = 2;
         if((grvw * bpe == 8 || grvw * bpe <= 2) && (MTX / NumLoadsCoalesced * bpe >= L1BusWidthPerCU))
@@ -376,142 +363,8 @@ namespace Tensilelite
         return L1_req;
     }
 
-    static double getTCPEfficiency(double readLength, double stride, double bpe)
-    {
-        double TCPEff            = 1.0;
-        double TCP_tagrams_width = 512;
-        double stride_byte       = stride * bpe;
-        double stride_mod_512    = std::fmod(stride_byte, TCP_tagrams_width); // 4 bank. 128B per bank.
-        double readBytes         = readLength * bpe;
-        if(stride_mod_512 == 0)
-        {
-            // 512 bytes aligned
-            if(readBytes < 512)
-            {
-                TCPEff = std::max(0.25, readBytes / 512);
-            }
-        }
-        else if(stride_mod_512 == 256)
-        {
-            // 256 bytes aligned
-            if(readBytes < 256)
-            {
-                TCPEff = std::max(0.5, readBytes / 256);
-            }
-        }
-        return TCPEff;
-    }
-
-    static double getTCPEfficiencyOverall(double M, double N, double K, double MT0, double MT1, uint32_t depthU, uint32_t bpeA, uint32_t bpeB, bool transA, bool transB)
-    {
-        double TCP_EFF_A = 1.0;
-        double TCP_EFF_B = 1.0;
-        if(transA)
-            TCP_EFF_A = getTCPEfficiency(depthU, K, bpeA);
-        else
-            TCP_EFF_A = getTCPEfficiency(MT0, M, bpeA);
-
-        if(transB)
-            TCP_EFF_B = getTCPEfficiency(MT1, N, bpeB);
-        else
-            TCP_EFF_B = getTCPEfficiency(depthU, K, bpeB);
-
-        return (TCP_EFF_A * MT0 + TCP_EFF_B * MT1) / (MT0 + MT1);
-    }
-
-    static double getAllMemLatency(double l1, double l2, double l3, double hbm, double tcp, double tcc)
-    {
-        std::vector<double> memArr = {l1, l2, l3, hbm, tcp, tcc};
-        std::sort(memArr.begin(), memArr.end());
-        std::vector<double> coef = {0.01, 0.03, 0.07, 0.15, 0.3, 1.0};
-        double memAll = 0.0;
-        for(int i = 0; i < memArr.size(); i++)
-            memAll += memArr[i] * coef[i];
-        return memAll;
-    }
-
-    static double getMagicMemLatency(double l1, double l2)
-    {
-        auto larger  = l1;
-        auto smaller = l2;
-        if(l1 < l2)
-        {
-            larger  = l2;
-            smaller = l1;
-        }
-
-        auto r = smaller / larger;
-        if(r < 0.5)
-            return larger;
-        else
-            return larger + r * smaller;
-
-    }
-
-    static double getTCPEfficiencyRatio(double TCP_EFF, double MT0, double MT1, double depthU, double bpeA, double bpeB, double L1CacheLineSize, bool trA, bool trB)
-    {
-        if(TCP_EFF == 1.0)
-            return 1.0;
-
-        double TCP_EFF_ratio = 1.0;
-
-        double TCP_EFF_ratioA = 1.0;
-        double TCP_EFF_ratioB = 1.0;
-
-        double readALine = MT0 * bpeA;
-        if(trA)
-            readALine = depthU * bpeA;
-
-        double readBLine = depthU * bpeA;
-        if(trB)
-            readBLine = MT1 * bpeA;
-
-        //FIXME: need to consider NN,NT cases.
-
-        if(depthU * bpeA < L1CacheLineSize)
-        {
-            double MT_bytes = MT0 * depthU * bpeA + MT1 * depthU * bpeB;
-            if(TCP_EFF <= 0.25)
-            {
-                TCP_EFF_ratio = 0.35 + (MT_bytes - 12288) * 0.15 / 12288;     // Larger MT hides more tagram clocks.
-                TCP_EFF_ratio = std::min(std::max(0.35, TCP_EFF_ratio), 1.0); //clamp to 0.35~1.0
-            }
-            else if(TCP_EFF <= 0.5)
-            {
-                TCP_EFF_ratio = 0.5 + (MT_bytes - 16384) * 0.38 / 4096;      // Larger MT hides more tagram clocks.
-                TCP_EFF_ratio = std::min(std::max(0.5, TCP_EFF_ratio), 1.0); //clamp to 0.5~1.0
-            }
-        }
-        if(depthU * bpeA == L1CacheLineSize)
-        {
-            if(TCP_EFF <= 0.25)
-                TCP_EFF_ratio = 0.35;
-            else if(TCP_EFF == 0.5)
-            {
-                double MT_bytes = MT0 * depthU * bpeA + MT1 * depthU * bpeB;
-                TCP_EFF_ratio = 0.5 + (MT_bytes - 16384) * 0.08 / 8192;      // Larger MT hides more tagram clocks.
-                TCP_EFF_ratio = std::min(std::max(0.5, TCP_EFF_ratio), 1.0); //clamp to 0.5~1.0
-            }
-        }
-        else
-        {
-            if(TCP_EFF <= 0.5)
-                TCP_EFF_ratio = 0.58;
-        }
-        return TCP_EFF_ratio;
-    }
-
     double Formocast::getLoopOverall(const MemoryAccessCosts& mem, double math, uint32_t loopCnt, double pgr) const
     {
-#define USE_OLD_LOOP_OVERALL 0
-#if USE_OLD_LOOP_OVERALL
-        double loop_overall;
-        if(pgr > 1 && loopCnt > 0)
-            loop_overall = std::max(math, mem.mem_overall) * (loopCnt - 1) + (math);
-        else
-            loop_overall = std::max(math, mem.mem_overall) * loopCnt;
-        return loop_overall;
-#else
         double path1 = std::max(math, mem.mem_l1);
         double path2 = std::max(math, mem.mem_l2);
         double path3 = std::max(math, mem.mem_l3);
@@ -526,37 +379,36 @@ namespace Tensilelite
             return (path1 * ratio1 + path2 * ratio2 + path3 * ratio3 + path4 * ratio4) * (loopCnt - 1) + (math);
         else
             return (path1 * ratio1 + path2 * ratio2 + path3 * ratio3 + path4 * ratio4) * loopCnt;
-#endif
+    }
+
+    Formocast::HardwareConstants archConstantMap(const unsigned char* magic, size_t magicSize) {
+        Formocast::HardwareConstants hw;
+        if (magicSize != sizeof(Formocast::HardwareConstants)) {
+            std::cerr << "Error: magic number size does not match HardwareConstants size!" << std::endl;
+        }
+        std::memcpy(&hw, magic, std::min(magicSize, sizeof(Formocast::HardwareConstants)));
+        return hw;
     }
 
     Formocast::HardwareConstants
-    Formocast::getHardwareConstants(void) const
+    Formocast::getHardwareConstants() const
     {
         HardwareConstants hw;
-        hw.NumCUs               = 256; //pAMDGPU->computeUnitCount;
-        hw.wavefrontSize        = 64; //pAMDGPU->wavefrontSize;
-        hw.L1CacheCapacity      = 32 * 1024;         //bytes
-        hw.L2CacheCapacity      = 4 * 1024 * 1024;   //bytes
-        hw.L3CacheCapacity      = 256 * 1024 * 1024; //bytes
-        hw.L1CacheLineSize      = 128;       //bytes
-        hw.L2CacheLineSize      = 128;       //bytes
-        hw.L1BusWidthPerCU      = 64;        //bytes
-        hw.L2BusWidthPerCU      = 128;       //bytes
-        hw.L1WriteBusWidthPerCU = 64;        //bytes
-        hw.L2WriteBusWidthPerCU = 64;        //bytes
-        hw.maxBandWidthHBM      = 3.0;       //TB/s
-        hw.mem_frequency        = 1900; //2000; //1300;      //MHz
-        hw.hbmBandWidth         = hw.maxBandWidthHBM * 1000000 / hw.mem_frequency;
-        hw.L3BandWidth          = 6.0 * 1000000 / hw.mem_frequency;
-        hw.boost_frequency      = 2350; //2350; //2100;      //MHz
-        hw.math_frequency       = 1800; //2350; //1100;      //MHz
-        hw.initialCost          = 2.6; //2.7;       //us
-        hw.initialCostHit       = 2.1;
-        hw.flopsPerClk          = 4096; //2048;      //Should get this from the MI and platform. Remove this if mathclk is reliable.
-        hw.NumXCDs              = 8;
-        hw.L2ReadArbEff         = 0.9;
-        hw.L2WriteArbEff        = 0.75; //0.58
+        if(hardware->arch == origami::hardware_t::architecture_t::gfx950)
+        {
+            unsigned char magic[184] = {0, 0, 0, 0, 0, 0, 224, 64, 0, 0, 0, 0, 0, 0, 80, 65, 0, 0, 0, 0, 0, 0, 176, 65, 0, 0, 0, 0, 0, 0, 96, 64, 0, 0, 0, 0, 0, 0, 96, 64, 0, 0, 0, 0, 0, 0, 80, 64, 0, 0, 0, 0, 0, 0, 96, 64, 0, 0, 0, 0, 0, 0, 80, 64, 0, 0, 0, 0, 0, 0, 80, 64, 0, 0, 0, 0, 0, 0, 8, 64, 0, 0, 0, 0, 0, 176, 157, 64, 189, 134, 242, 26, 202, 171, 152, 64, 189, 134, 242, 26, 202, 171, 168, 64, 0, 0, 0, 0, 0, 32, 156, 64, 0, 0, 0, 0, 0, 92, 162, 64, 205, 204, 204, 204, 204, 204, 4, 64, 205, 204, 204, 204, 204, 204, 0, 64, 0, 0, 0, 0, 0, 0, 176, 64, 0, 0, 0, 0, 0, 0, 112, 64, 0, 0, 0, 0, 0, 0, 80, 64, 205, 204, 204, 204, 204, 204, 236, 63, 0, 0, 0, 0, 0, 0, 232, 63, 8, 0, 0, 0, 0, 0, 0, 0};
+            hw = archConstantMap(magic, 184);
+        }
+        else
+        {
+            throw std::runtime_error(
+                    "Attempting to retrieve hardware constants for unsupported architecture");
+        }
 
+        hw.NumCUs               = hardware->N_CU;
+        hw.NumXCDs              = hardware->NUM_XCD;
+        hw.L2CacheCapacity      = hardware->L2_capacity;
+        hw.boost_frequency      = hardware->compute_clock_ghz * 1000;
         return hw;
     }
 
@@ -1060,10 +912,6 @@ namespace Tensilelite
     //   False doesn't means worse, means tie (equal) --> IMPORTANT note since this would be used in std::sort
     bool Formocast::isBetter(TieBreakerInfo previousSolution, TieBreakerInfo currentSolution) const
     {
-        // just early return, return false means equal
-        if(previousSolution == currentSolution)
-            return false;
-
         double M = problem.M;
         double N = problem.N;
         double NumBatches = problem.NumBatches;
@@ -1126,8 +974,6 @@ namespace Tensilelite
         bool     isSwizzleB = problem.swizzleTensorB;
 
         // 2. Hardware Parameter Extraction
-        //const AMDGPU* pAMDGPU = dynamic_cast<const AMDGPU*>(&hardware);
-        //assert(pAMDGPU);
         HardwareConstants hw_consts = getHardwareConstants();
 
         // 3. Variables directly from sizeMapping
@@ -1173,8 +1019,10 @@ namespace Tensilelite
 
         // Clock calculation
         double math_clk = sizeMapping.MathClocksUnrolledLoop;
-        //math_clk = std::max(math_clk, (double)MT0 * MT1 * 2 * depthU / hw_consts.flopsPerClk);
-        assert(math_clk >= ((double)MT0 * MT1 * 2 * depthU / hw_consts.flopsPerClk));
+        auto miLatency = hardware->get_mi_latency(sizeMapping.matrixInstruction[0], sizeMapping.matrixInstruction[1], sizeMapping.matrixInstruction[2], problem.dataType);
+        auto minMathClock = ((double)MT0 * MT1 * depthU / (sizeMapping.matrixInstruction[0] * sizeMapping.matrixInstruction[1] * sizeMapping.matrixInstruction[2]) * miLatency);
+        //assert(math_clk >= minMathClock);
+        math_clk = std::max(math_clk, minMathClock); //FIXME: CMS kernel has incorrect MathClocksUnrolledLoop
 
         // Debug output (commented)
         //std::cout<<"DTVA         =          "<<DTVA<<std::endl;
@@ -1194,9 +1042,8 @@ namespace Tensilelite
         // FIXME: add an extra function to reject the solutions first.
         if (GlobalSplitU == 0)
         {
-            pp.microSeconds = 9999999.9;
-            pp.hitRate = 0;
-            return pp;
+            // FIXME: Need to support streamK kernels.
+            GlobalSplitU = 1;
         }
         if (MT0 - M >= 16 || MT1 - N >= 16)
         {
@@ -1204,7 +1051,7 @@ namespace Tensilelite
             pp.hitRate = 0;
             return pp;
         }
-        if (((K >= 64 && depthU <=32) || (K <= 32 && depthU > 32) || (K > 32 && depthU > K)) && NumBatches < hw_consts.NumCUs && sizeMapping.matrixInstruction[3] >= 32)
+        if (((K >= 64 && depthU <=32) || (K <= 32 && depthU > 32) || (K > 32 && depthU > K)) && NumBatches < hw_consts.NumCUs && sizeMapping.matrixInstruction[2] >= 32)
         {
             pp.microSeconds = 9999999.9;
             pp.hitRate = 0;
@@ -1212,7 +1059,6 @@ namespace Tensilelite
         }
 
         // 4. Derived Problem/Workgroup Dimensions
-        //uint32_t GlobalSplitU = globalSplitUcalculateAutoGSU(problem, &hardware);
         double K_AfterGSU = ceilDivide((uint32_t)K, GlobalSplitU);
         uint32_t M_WGs_total = ceilDivide(M, MT0);
         uint32_t N_WGs_total = ceilDivide(N, MT1);
@@ -1263,16 +1109,6 @@ namespace Tensilelite
         cache_hits.totalL2HitRate = l2.totalHitRate;
         cache_hits.totalL3HitRate = l3.totalHitRate;
 
-        double TCP_EFF = 1.0;
-        TCP_EFF = getTCPEfficiencyOverall(M, N, K, MT0, MT1, depthU, bpeA, bpeB, transA, transB);
-
-#define USE_DISABLED_TCP_EFF 1
-#if USE_DISABLED_TCP_EFF
-        double TCP_EFF_ratio = 1.0; // Disable TCP_EFF
-#else
-        // Calculate TCP_EFF ratio
-        double TCP_EFF_ratio = getTCPEfficiencyRatio(TCP_EFF, MT0, MT1, depthU, bpeA, bpeB, hw_consts.L1CacheLineSize, transA, transB);
-#endif
         // 6. Calculate Store Performance (D matrix writes)
         double store, store_edge;
         calculateStorePerformance(M, N, NumBatches, MT0, MT1, GWVWD, bpeD, hw_consts, WGs_per_tile, WGs_per_tile_XCD, store, store_edge);
@@ -1288,6 +1124,8 @@ namespace Tensilelite
         double lsu_overall = calculateLSUOverhead(MT0, MT1, LSU, GWVWD, NumThreads, problem, hw_consts);
 
         // 9. Calculate Memory Access and Math Costs
+        double TCP_EFF              = 1.0;
+        double TCP_EFF_ratio        = 1.0;
         double L2BandWidthPerCU     = hw_consts.L2ReadArbEff * 128 * 16 / WGs_per_tile_XCD; //90% eff
         double L3BandWidthPerCU     = hw_consts.L3BandWidth / WGs_per_tile;
         double HBMBandWidthPerCU    = hw_consts.hbmBandWidth / WGs_per_tile;
@@ -1345,7 +1183,6 @@ namespace Tensilelite
             perf = preLoopCost + loop_overall + store;
         }
 
-
         // 13. Handle Tail Loop
         double tail_overall = 0.0;
         if (K_tail > 0)
@@ -1392,7 +1229,6 @@ namespace Tensilelite
         std::cout<<"B_L1_req          =          "<<mem_costs.B_L1_req<<std::endl;
         std::cout<<"A_L2_req          =          "<<mem_costs.A_L2_req<<std::endl;
         std::cout<<"B_L2_req          =          "<<mem_costs.B_L2_req<<std::endl;
-        std::cout<<"TCP_EFF_ratio     =          "<<TCP_EFF_ratio<<std::endl;
         std::cout<<"A_L1_hit          =          "<<cache_hits.A_L1_hit<<std::endl;
         std::cout<<"B_L1_hit          =          "<<cache_hits.B_L1_hit<<std::endl;
         std::cout<<"A_L2_hit          =          "<<cache_hits.A_L2_hit<<std::endl;
@@ -1782,6 +1618,11 @@ namespace Tensilelite
     void Formocast::setSolution(SizeMapping sm)
     {
         sizeMapping = sm;
+    }
+
+    void Formocast::setHardware(std::shared_ptr<origami::hardware_t> hw)
+    {
+        hardware = hw;
     }
 
     int Formocast::checkGlobalReadFIFOFull(int currentCycle, std::queue<int>& fifo, int bpRead, int numWaves, bool isStall) const

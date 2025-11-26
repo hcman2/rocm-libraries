@@ -11,6 +11,8 @@
 #include <array>
 #include <queue>
 
+#include <origami/utils.hpp>
+
 namespace Tensilelite
 {
     class Formocast
@@ -93,6 +95,33 @@ namespace Tensilelite
             double L2ReadArbEff;
             double L2WriteArbEff;
             uint32_t NumXCDs;
+
+            void print() const {
+                std::cout << "HardwareConstants:" << std::endl;
+                std::cout << "  L1CacheCapacity:      " << L1CacheCapacity << std::endl;
+                std::cout << "  L2CacheCapacity:      " << L2CacheCapacity << std::endl;
+                std::cout << "  L3CacheCapacity:      " << L3CacheCapacity << std::endl;
+                std::cout << "  L1CacheLineSize:      " << L1CacheLineSize << std::endl;
+                std::cout << "  L2CacheLineSize:      " << L2CacheLineSize << std::endl;
+                std::cout << "  L1BusWidthPerCU:      " << L1BusWidthPerCU << std::endl;
+                std::cout << "  L2BusWidthPerCU:      " << L2BusWidthPerCU << std::endl;
+                std::cout << "  L1WriteBusWidthPerCU: " << L1WriteBusWidthPerCU << std::endl;
+                std::cout << "  L2WriteBusWidthPerCU: " << L2WriteBusWidthPerCU << std::endl;
+                std::cout << "  maxBandWidthHBM:      " << maxBandWidthHBM << std::endl;
+                std::cout << "  mem_frequency:        " << mem_frequency << std::endl;
+                std::cout << "  hbmBandWidth:         " << hbmBandWidth << std::endl;
+                std::cout << "  L3BandWidth:          " << L3BandWidth << std::endl;
+                std::cout << "  math_frequency:       " << math_frequency << std::endl;
+                std::cout << "  boost_frequency:      " << boost_frequency << std::endl;
+                std::cout << "  initialCost:          " << initialCost << std::endl;
+                std::cout << "  initialCostHit:       " << initialCostHit << std::endl;
+                std::cout << "  flopsPerClk:          " << flopsPerClk << std::endl;
+                std::cout << "  NumCUs:               " << NumCUs << std::endl;
+                std::cout << "  wavefrontSize:        " << wavefrontSize << std::endl;
+                std::cout << "  L2ReadArbEff:         " << L2ReadArbEff << std::endl;
+                std::cout << "  L2WriteArbEff:        " << L2WriteArbEff << std::endl;
+                std::cout << "  NumXCDs:              " << NumXCDs << std::endl;
+            };
         };
 
         struct CacheHitRates
@@ -155,10 +184,12 @@ namespace Tensilelite
             bool transB;
             bool swizzleTensorA;
             bool swizzleTensorB;
+            origami::data_type_t dataType;
         };
         
         void setProblem(ProblemInfo p);
         void setSolution(SizeMapping sm);
+        void setHardware(std::shared_ptr<origami::hardware_t> hw);
         HardwareConstants getHardwareConstants(void) const;
         void calculateStorePerformance(double M,
                                        double N,
@@ -234,6 +265,7 @@ namespace Tensilelite
     public:
         SizeMapping sizeMapping;
         ProblemInfo problem;
+        std::shared_ptr<origami::hardware_t> hardware;
         mutable TieBreakerInfo perfInfo;
     };
 } // namespace Tensilelite

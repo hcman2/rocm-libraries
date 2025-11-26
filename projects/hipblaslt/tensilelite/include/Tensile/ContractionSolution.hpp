@@ -595,6 +595,7 @@ namespace TensileLite
         double calculateDimensionN(Problem const&  problem) const;
         double calculateNumBatches(Problem const&  problem) const;
         SizeMapping getSizeMapping(void) const {return sizeMapping;};
+        origami::data_type_t getOrigamiDatatype(Problem const&  problem) const;
     };
 
     template <typename TAct>

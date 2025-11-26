@@ -1507,32 +1507,6 @@ class Solution(collections.abc.Mapping):
     hasCMS,_ = hasCustomSchedule(state)
     state["UseCustomMainLoopSchedule"] = hasCMS
 
-    # Formocast rejection
-    #if (state["DirectToVgprA"] or state["DirectToVgprB"]) and state["DepthU"] == state["MatrixInstruction"][2]:
-    #  reject(state, printRejectionReason, "tensilelite bug")
-    if state["DirectToVgprA"] and state["GlobalReadVectorWidthA"] < 4:
-      reject(state, printRejectionReason, "DTVA + GRVWA<4")
-    if state["DirectToVgprB"] and state["GlobalReadVectorWidthB"] < 4:
-      reject(state, printRejectionReason, "DTVB + GRVWB<4")
-    if (state["MacroTile0"] == 64 or state["MacroTile0"] == 96) and (state["MacroTile1"] == 64 or state["MacroTile1"] == 96) and state["DepthU"] < 96:
-      reject(state, printRejectionReason, "64x64x64 bad kernel")
-    if (state["DepthU"] // state["LocalSplitU"]) <= state["MatrixInstruction"][2] and state["LocalSplitU"] > 1:
-      reject(state, printRejectionReason, "DU/LSU <= miK")
-    if (state["MIWaveTile"][0] == 3 and state["MIWaveTile"][1] == 15 and state["MIWaveGroup"][0] == 4 and state["MIWaveGroup"][1] == 1) or \
-       (state["MIWaveTile"][0] == 4 and state["MIWaveTile"][1] == 15 and state["MIWaveGroup"][0] == 4 and state["MIWaveGroup"][1] == 1) or \
-       (state["MIWaveTile"][0] == 4 and state["MIWaveTile"][1] == 13 and state["MIWaveGroup"][0] == 4 and state["MIWaveGroup"][1] == 1) or \
-       (state["MIWaveTile"][0] == 15 and state["MIWaveTile"][1] == 4 and state["MIWaveGroup"][0] == 1 and state["MIWaveGroup"][1] == 4) or \
-       (state["MIWaveTile"][0] == 15 and state["MIWaveTile"][1] == 3 and state["MIWaveGroup"][0] == 1 and state["MIWaveGroup"][1] == 4) or \
-       (state["MIWaveTile"][0] == 19 and state["MIWaveTile"][1] == 3 and state["MIWaveGroup"][0] == 1 and state["MIWaveGroup"][1] == 4) or \
-       (state["MIWaveTile"][0] == 5 and state["MIWaveTile"][1] == 2 and state["MIWaveGroup"][0] == 2 and state["MIWaveGroup"][1] == 2) or \
-       (state["MIWaveTile"][0] == 7 and state["MIWaveTile"][1] == 4 and state["MIWaveGroup"][0] == 2 and state["MIWaveGroup"][1] == 2) or \
-       (state["MIWaveTile"][0] == 10 and state["MIWaveTile"][1] == 5 and state["MIWaveGroup"][0] == 2 and state["MIWaveGroup"][1] == 2) or \
-       (state["MIWaveTile"][0] == 5 and state["MIWaveTile"][1] == 2 and state["MIWaveGroup"][0] == 2 and state["MIWaveGroup"][1] == 2) or \
-       (state["MIWaveTile"][0] == 2 and state["MIWaveTile"][1] == 4 and state["MIWaveGroup"][0] == 1 and state["MIWaveGroup"][1] == 1 and state["LocalSplitU"] == 4):
-      reject(state, printRejectionReason, "bad kernels %d,%d,%d,%d"%(state["MIWaveTile"][0], state["MIWaveTile"][1], state["MIWaveGroup"][0], state["MIWaveGroup"][1]))
-    if (state["LocalSplitU"] * state["MIWaveGroup"][0] * state["MIWaveGroup"][1]) != 4:
-      reject(state, printRejectionReason, "Wave number is not 4")
-
     # 0: Normal mode. Hardware applies all of the normal data dependency checks
     # 1: Full expert mode (not suppoeted yet). Disable hardware checks against: VA_VDST, VA_SDST, VA_SSRC, VA_VCC, VM_VSRC and SA_SDST.
     # 2: Disable only VA_VDST and VM_VSRC checks.
