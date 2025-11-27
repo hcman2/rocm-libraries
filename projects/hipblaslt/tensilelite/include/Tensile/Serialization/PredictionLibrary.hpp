@@ -43,6 +43,10 @@ namespace TensileLite
 
             static void mapping(IO& io, Library& lib)
             {
+                // const bool use_origami   = Debug::Instance().usePredictionSelection() == 0;
+                const bool use_formocast = Debug::Instance().usePredictionSelection() == 1;
+                lib.predictAlgo = use_formocast ? 1 : 0;
+
                 auto ctx = static_cast<LibraryIOContext<MySolution>*>(iot::getContext(io));
                 if(ctx == nullptr)
                 {
@@ -50,6 +54,8 @@ namespace TensileLite
                                   "ProblemPredictionLibrary requires that context be "
                                   "set to a SolutionMap.");
                 }
+
+                // Serialize table for Origami
                 std::vector<int> mappingIndices;
                 if(iot::outputting(io))
                 {
@@ -116,6 +122,42 @@ namespace TensileLite
 
                             lib.origami_config_list.emplace_back(origami_config);
                             lib.origami_config_map.insert(std::make_pair(origami_config, index));
+                        }
+                    }
+                }
+
+                // Serialize table_fc for FormoCast
+                std::vector<int> mappingIndices_fc;
+                if(iot::outputting(io))
+                {
+                    mappingIndices_fc.reserve(lib.solutionmap_fc.size());
+
+                    for(auto const& pair : lib.solutionmap_fc)
+                        mappingIndices_fc.push_back(pair.first);
+
+                    iot::mapRequired(io, "table_fc", mappingIndices_fc);
+                }
+                else
+                {
+                    iot::mapRequired(io, "table_fc", mappingIndices_fc);
+                    if(mappingIndices_fc.empty())
+                        iot::setError(io,
+                                      "ProblemPredictionLibrary has no valid pool for FormoCast");
+
+                    for(int index : mappingIndices_fc)
+                    {
+                        auto slnIter = ctx->solutions->find(index);
+                        if(slnIter == ctx->solutions->end())
+                        {
+                            iot::setError(
+                                io,
+                                concatenate("[ProblemPredictionLibrary_FC] Invalid solution index: ",
+                                            index));
+                        }
+                        else
+                        {
+                            auto solution = slnIter->second;
+                            lib.solutionmap_fc.insert(std::make_pair(index, solution));
                         }
                     }
                 }

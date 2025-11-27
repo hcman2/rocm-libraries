@@ -1974,7 +1974,7 @@ namespace TensileLite
                 }
             };
 
-            struct OrigamiMatching : public Predicate_CRTP<OrigamiMatching, ContractionProblemGemm>
+            struct PredictionMatching : public Predicate_CRTP<PredictionMatching, ContractionProblemGemm>
             {
                 enum
                 {
@@ -1982,41 +1982,11 @@ namespace TensileLite
                     HasValue = false
                 };
 
-                OrigamiMatching() = default;
+                PredictionMatching() = default;
 
                 static std::string Type()
                 {
-                    return "OrigamiMatching";
-                }
-
-                virtual bool operator()(ContractionProblemGemm const& problem) const override
-                {
-                    return true;
-                }
-
-                virtual bool debugEval(ContractionProblemGemm const& problem,
-                                       std::ostream&                 stream) const override
-                {
-                    bool rv = (*this)(problem);
-                    stream << rv << ": " << this->type() << std::endl;
-                    return rv;
-                }
-            };
-
-            struct FormoCastMatching
-                : public Predicate_CRTP<FormoCastMatching, ContractionProblemGemm>
-            {
-                enum
-                {
-                    HasIndex = false,
-                    HasValue = false
-                };
-
-                FormoCastMatching() = default;
-
-                static std::string Type()
-                {
-                    return "FormoCastMatching";
+                    return "PredictionMatching";
                 }
 
                 virtual bool operator()(ContractionProblemGemm const& problem) const override

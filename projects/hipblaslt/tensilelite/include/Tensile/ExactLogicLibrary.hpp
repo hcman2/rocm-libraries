@@ -131,8 +131,7 @@ namespace TensileLite
 
             const bool streamK = Debug::Instance().useExperimentalSelection() == 2;
             // const bool predictionLib = Debug::Instance().usePredictionLibrary();
-            const bool use_origami   = Debug::Instance().usePredictionSelection() == 0;
-            const bool use_formocast = Debug::Instance().usePredictionSelection() == 1;
+            const bool use_predict   = Debug::Instance().usePredictionSelection() != 2; // origami or formocast
             const bool use_gridbased = Debug::Instance().usePredictionSelection() == 2;
 
             for(auto const& row : rows)
@@ -147,10 +146,7 @@ namespace TensileLite
                 //                      || (row.first.value->type() == "RangeMatching")))
                 //     continue;
 
-                if(row.first.value->type() == "OrigamiMatching" && !use_origami)
-                    continue;
-
-                if(row.first.value->type() == "FormoCastMatching" && !use_formocast)
+                if(row.first.value->type() == "PredictionMatching" && !use_predict)
                     continue;
 
                 if(row.first.value->type() == "GridBasedMatching" && !use_gridbased)
@@ -197,10 +193,8 @@ namespace TensileLite
 
             const bool streamK       = Debug::Instance().useExperimentalSelection() == 2;
             const bool predictionLib = Debug::Instance().usePredictionLibrary();
-            const bool use_origami   = Debug::Instance().usePredictionSelection() == 0;
-            const bool use_formocast = Debug::Instance().usePredictionSelection() == 1;
+            const bool use_predict   = Debug::Instance().usePredictionSelection() != 2; // origami or formocast
             const bool use_gridbased = Debug::Instance().usePredictionSelection() == 2;
-            // const bool request_neg1  = true;
 
             for(auto const& row : rows)
             {
@@ -211,10 +205,7 @@ namespace TensileLite
                                      || (row.first.value->type() == "RangeMatching")))
                     continue;
 
-                if(row.first.value->type() == "OrigamiMatching" && !use_origami)
-                    continue;
-
-                if(row.first.value->type() == "FormoCastMatching" && !use_formocast)
+                if(row.first.value->type() == "PredictionMatching" && !use_predict)
                     continue;
 
                 if(row.first.value->type() == "GridBasedMatching" && !use_gridbased)
@@ -231,10 +222,6 @@ namespace TensileLite
                             sol->tag = MySolution::MatchingTag::Equal;
 
                     rv.insert(std::end(rv), std::begin(solutions), std::end(solutions));
-
-                    // TODO: Refine this to prevent from go to getAll
-                    // if(request_neg1 && rv.size())
-                    //     return rv;
 
                     if(rv.size() == numSolutions)
                         return rv;
