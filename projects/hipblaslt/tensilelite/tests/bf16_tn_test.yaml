@@ -1,0 +1,5 @@
+- {function: matmul, use_ext: false, use_ext_setproblem: false, flush: false, transA: T, transB: N, M: 4352, N: 256, K: 2432, batch_count: 1, alpha: 1.0, beta: 0.0, scaleA: 0, scaleB: 0, scale_type: f32_r, swizzle_a: false, a_type: bf16_r, b_type: bf16_r, c_type: bf16_r, d_type: bf16_r, compute_type: c_f32_fast_bf16_r, print_kernel_info: true, cold_iters: 10, iters: 500, initialization: hpl, use_gpu_timer: true, requested_solution_num: 1, rotating: 512}
+- {function: matmul, use_ext: false, use_ext_setproblem: false, flush: false, transA: T, transB: N, M: 6656, N: 1920, K: 4608, batch_count: 1, alpha: 1.0, beta: 0.0, scaleA: 0, scaleB: 0, scale_type: f32_r, swizzle_a: false, a_type: bf16_r, b_type: bf16_r, c_type: bf16_r, d_type: bf16_r, compute_type: c_f32_fast_bf16_r, print_kernel_info: true, cold_iters: 10, iters: 500, initialization: hpl, use_gpu_timer: true, requested_solution_num: 1, rotating: 512}
+# TENSILE_PREDICTION_ALGO=0 TENSILE_PREDICTION_LIB=1 --> Use Origami Algorithm
+# TENSILE_PREDICTION_ALGO=1 TENSILE_PREDICTION_LIB=1 --> Use FormoCast Algorithm
+# TENSILE_PREDICTION_ALGO=2 TENSILE_PREDICTION_LIB=1 --> Use GridBased Algorithm

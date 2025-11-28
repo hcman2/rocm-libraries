@@ -250,7 +250,6 @@ namespace Tensilelite
                                    bool DTVA, bool DTVB,
                                    const CacheHitRates& hr,
                                    double L2BandWidthPerCU, double L3BandWidthPerCU, double HBMBandWidthPerCU,
-                                   double TCP_EFF_ratio,
                                    uint32_t VWA, uint32_t VWB,
                                    bool isSwizzleA, bool isSwizzleB,
                                    bool trA, bool trB,

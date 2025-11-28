@@ -289,13 +289,23 @@ namespace TensileLite
                                                              int numSolutions) const
         {
             // TODO- Temp
-            std::cout << "Entering PredictionLibrary::findTopSolutionsFormoCast()" << std::endl;
+            //std::cout << "Entering PredictionLibrary::findTopSolutionsFormoCast()" << std::endl;
 
             bool                           debug = Debug::Instance().printPropertyEvaluation();
             SolutionVector<MySolution>     rv;
             Tensilelite::Formocast         formocast;
             std::vector<FormoCastPerfInfo> perfMetric; // sol_idx, micro-s, tieBreakerInfo
             double                         bestMS = std::numeric_limits<double>::max();
+
+            hip::HipAMDGPU const*      pAMDGPU = dynamic_cast<hip::HipAMDGPU const*>(&hardware);
+            const origami::hardware_t& analytical_hardware = *(pAMDGPU->analyticalHardware);
+            formocast.setHardware(pAMDGPU->analyticalHardware);
+
+            if(solutionmap_fc.size() == 0) {
+                throw std::runtime_error(
+                        "[findTopSolutionsFormoCast] No valid solutionmap_fc");
+            }
+
             for(auto const& row : solutionmap_fc)
             {
                 int  sol_idx  = row.first;
@@ -319,6 +329,11 @@ namespace TensileLite
                     perfMetric.push_back(
                         std::make_tuple(sol_idx, perf, formocast.getMinTieBreakerInfo()));
                 }
+            }
+
+            if(perfMetric.size() == 0) {
+                throw std::runtime_error(
+                        "[findTopSolutionsFormoCast] No valid solutions");
             }
 
             // This sorting function handles m-second first, and then tie-breaker

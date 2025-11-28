@@ -760,7 +760,6 @@ namespace Tensilelite
                                    bool DTVA, bool DTVB,
                                    const CacheHitRates& hr,
                                    double L2BandWidthPerCU, double L3BandWidthPerCU, double HBMBandWidthPerCU,
-                                   double TCP_EFF_ratio,
                                    uint32_t VWA, uint32_t VWB,
                                    bool isSwizzleA, bool isSwizzleB,
                                    bool trA, bool trB,
@@ -805,7 +804,7 @@ namespace Tensilelite
         if(isSwizzleA)
             A_L2_clk = A_L2_req * 128 / std::min(L2BandWidthPerCU, hw.L2BusWidthPerCU);
         else
-            A_L2_clk = A_L2_req * 128 / std::min(L2BandWidthPerCU * TCP_EFF_ratio, hw.L2BusWidthPerCU);
+            A_L2_clk = A_L2_req * 128 / std::min(L2BandWidthPerCU, hw.L2BusWidthPerCU);
         double A_L3_clk = A_L3_req * 128 / L3BandWidthPerCU;
         double A_hbm_clk = A_hbm_req * 128 / HBMBandWidthPerCU;
 
@@ -814,7 +813,7 @@ namespace Tensilelite
         if(isSwizzleB)
             B_L2_clk = B_L2_req * 128 / std::min(L2BandWidthPerCU, hw.L2BusWidthPerCU);
         else
-            B_L2_clk = B_L2_req * 128 / std::min(L2BandWidthPerCU * TCP_EFF_ratio, hw.L2BusWidthPerCU);
+            B_L2_clk = B_L2_req * 128 / std::min(L2BandWidthPerCU, hw.L2BusWidthPerCU);
         double B_L3_clk = B_L3_req * 128 / L3BandWidthPerCU;
         double B_hbm_clk = B_hbm_req * 128 / HBMBandWidthPerCU;
 
@@ -1036,6 +1035,7 @@ namespace Tensilelite
 
         // 2. Hardware Parameter Extraction
         HardwareConstants hw_consts = getHardwareConstants();
+        //hw_consts.print();
 
         // 3. Variables directly from sizeMapping
 
@@ -1080,7 +1080,7 @@ namespace Tensilelite
 
         // Clock calculation
         double math_clk = sizeMapping.MathClocksUnrolledLoop;
-        auto miLatency = hardware->get_mi_latency(sizeMapping.matrixInstruction[0], sizeMapping.matrixInstruction[1], sizeMapping.matrixInstruction[2], problem.dataType);
+        auto miLatency = hardware->get_mi_latency(sizeMapping.matrixInstruction[0], sizeMapping.matrixInstruction[1], sizeMapping.matrixInstruction[2], origami::data_type_t::BFloat16); //FIXME: Only for Bf16 now (TF32 is also BF16 in gfx950)
         auto minMathClock = ((double)MT0 * MT1 * depthU / (sizeMapping.matrixInstruction[0] * sizeMapping.matrixInstruction[1] * sizeMapping.matrixInstruction[2]) * miLatency);
         //assert(math_clk >= minMathClock);
         math_clk = std::max(math_clk, minMathClock); //FIXME: CMS kernel has incorrect MathClocksUnrolledLoop
@@ -1105,6 +1105,9 @@ namespace Tensilelite
         {
             // FIXME: Need to support streamK kernels.
             GlobalSplitU = 1;
+            pp.microSeconds = 9999999.9;
+            pp.hitRate = 0;
+            return pp;
         }
         if (MT0 - M >= 16 || MT1 - N >= 16)
         {
@@ -1187,8 +1190,6 @@ namespace Tensilelite
         double lsu_overall = calculateLSUOverhead(MT0, MT1, LSU, GWVWD, NumThreads, problem, hw_consts);
 
         // 9. Calculate Memory Access and Math Costs
-        double TCP_EFF              = 1.0;
-        double TCP_EFF_ratio        = 1.0;
         double L2BandWidthPerCU     = hw_consts.L2ReadArbEff * 128 * 16 / WGs_per_tile_XCD; //90% eff
         double L3BandWidthPerCU     = hw_consts.L3BandWidth / WGs_per_tile;
         double HBMBandWidthPerCU    = hw_consts.hbmBandWidth / WGs_per_tile;
@@ -1199,7 +1200,6 @@ namespace Tensilelite
                                                                 DTVA, DTVB,
                                                                 cache_hits,
                                                                 L2BandWidthPerCU, L3BandWidthPerCU, HBMBandWidthPerCU,
-                                                                TCP_EFF_ratio,
                                                                 VWA, VWB,
                                                                 isSwizzleA, isSwizzleB,
                                                                 transA, transB,
