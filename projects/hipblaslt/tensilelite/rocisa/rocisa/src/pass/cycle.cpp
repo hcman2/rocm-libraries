@@ -32,11 +32,211 @@
 #include <string>
 #include <vector>
 #include <queue>
+#include <tuple>
+#include <regex>
+#include <algorithm>
 
 #include "formocast.hpp"
 
+using MacroArguments = std::vector<std::tuple<std::string, std::string>>;
+using MacroEntity = std::tuple<std::shared_ptr<rocisa::Macro>, std::shared_ptr<MacroArguments>>;
+using MacroTable = std::unordered_map<std::string, MacroEntity>;
+
 namespace rocisa
 {
+    // Helper function to handle macro and macro if/else, should be remove once macro is forbidden
+    void _extractMacro(MacroTable& macros, std::shared_ptr<Macro> macro)
+    {
+        auto args = std::make_shared<MacroArguments>();
+        auto entity = std::make_tuple(macro, args);
+        macros[macro->macro->name] = entity;
+        // parse argument and default values
+        std::regex argPattern("([^=]+)=?(\\w+)?");
+        std::smatch match;
+        for(auto& arg : macro->macro->args)
+        {
+            std::regex_match(std::get<std::string>(arg), match, argPattern);
+            args->push_back(std::make_tuple(match[1].str(), match.size() > 2 ? match[2].str() : std::string()));
+        }
+    }
+
+    void _getMacros(std::shared_ptr<Module> module, MacroTable& macros)
+    {
+        for(auto& item : module->items())
+        {
+            if(auto subModule = std::dynamic_pointer_cast<Module>(item))
+            {
+                _getMacros(subModule, macros);
+            }
+            else if(auto macro = std::dynamic_pointer_cast<Macro>(item))
+            {
+                if(macros.find(macro->macro->name) == macros.end())
+                {
+                    _extractMacro(macros, macro);
+                }
+            }
+        }
+    }
+
+    bool _evalMacroCondition(std::string value, std::shared_ptr<MacroArguments> args)
+    {
+        std::regex tokenPattern("\\\\([^=\\s]+)|\\w+|==|!=|&&");
+        std::sregex_iterator it(value.begin(), value.end(), tokenPattern);
+        std::sregex_iterator end;
+        std::string lhs, rhs, op, val;
+        int i = 0;
+        bool result;
+        std::vector<int> results;
+        while(it != end)
+        {
+            std::smatch match = *it;
+            if(!match.str(0).empty())
+            {
+                val = match.str(0);
+                if(val[0] == '\\')
+                {
+                    auto var = match.str(1);
+                    auto find_it = std::find_if(args->begin(), args->end(), [&var](auto& arg){ return std::get<0>(arg) == var; });
+                    if(find_it != args->end())
+                    {
+                        val = std::get<1>(*find_it);
+                    }
+                    else
+                    {
+                        throw std::runtime_error("unknown macro argument");
+                    }
+                }
+                if(i == 0)
+                {
+                    lhs = val;
+                }
+                else if(i == 1)
+                {
+                    op = val;
+                }
+                else if(i == 2)
+                {
+                    rhs = val;
+                    if(op == "==")
+                    {
+                        result = lhs == rhs;
+                    }
+                    else if(op == "!=")
+                    {
+                        result = lhs != rhs;
+                    }
+                    else
+                    {
+                        throw std::runtime_error("unknown macro condition");
+                    }
+                    results.push_back(result ? 1 : 0);
+                }
+                else if(i == 4)
+                {
+                    if(val == "&&")
+                    {
+                        results.push_back(2);
+                    }
+                    else
+                    {
+                        throw std::runtime_error("unknown macro condition");
+                    }
+                }
+                i = (i + 1) % 4;
+            }
+            ++it;
+        }
+        result = results.front();
+        i = 1;
+        while(i < results.size())
+        {
+            auto r = results[i];
+            if(r == 2)
+            {
+                result = result & results[i+1];
+                i += 2;
+            }
+            else
+            {
+                i++;
+            }
+        }
+        return result;
+    }
+
+    void _expandMacroAndPopInst(std::vector<std::shared_ptr<Item>>& moduleInst, std::vector<std::shared_ptr<Item>>& macroItems, std::shared_ptr<MacroArguments> args, std::vector<bool>& branch)
+    {
+        for(auto& item : macroItems)
+        {
+            if(auto subModule = std::dynamic_pointer_cast<Module>(item))
+            {
+                _expandMacroAndPopInst(moduleInst, subModule->itemList, args, branch);
+            }
+            else if(auto valueIf = std::dynamic_pointer_cast<ValueIf>(item))
+            {
+                branch.push_back(branch.back() && _evalMacroCondition(valueIf->value, args));
+            }
+            else if(auto valueElseIf = std::dynamic_pointer_cast<ValueElseIf>(item))
+            {
+                bool ifTaken = branch.back();
+                branch.pop_back();
+                branch.push_back(!ifTaken && _evalMacroCondition(valueElseIf->value, args));
+            }
+            else if(auto valueEndif = std::dynamic_pointer_cast<ValueEndif>(item))
+            {
+              branch.pop_back();
+            }
+            else if(auto instruction = std::dynamic_pointer_cast<Instruction>(item))
+            {
+                if(branch.back())
+                {
+                    moduleInst.push_back(instruction);
+                }
+            }
+        }
+    }
+
+    void _expandMacroAndPopInst(std::vector<std::shared_ptr<Item>>& moduleInst, std::vector<std::shared_ptr<Item>>& macroItems, std::shared_ptr<MacroArguments> args)
+    {
+        std::vector<bool> branch = {true};
+        _expandMacroAndPopInst(moduleInst, macroItems, args, branch);
+    }
+
+    void _popInst(std::shared_ptr<Module> mod, std::vector<std::shared_ptr<Item>>& moduleInst, MacroTable& macros)
+    {
+        for(auto& item : mod->items())
+        {
+            if(auto subModule = std::dynamic_pointer_cast<Module>(item))
+            {
+                _popInst(subModule, moduleInst, macros);
+            }
+            else if(auto macro = std::dynamic_pointer_cast<Macro>(item))
+            {
+                _extractMacro(macros, macro);
+            }
+            else if(auto macroInst = std::dynamic_pointer_cast<MacroInstruction>(item))
+            {
+                auto entity = macros[macroInst->name];
+                auto macro = std::get<0>(entity);
+                auto defaultArgs = std::get<1>(entity);
+                auto args = std::make_shared<MacroArguments>();
+                for(auto& arg : *defaultArgs)
+                {
+                    args->push_back(arg);
+                }
+                for(int i = 0; i < macroInst->args.size(); i++)
+                {
+                    std::get<1>(args->at(i)) = InstructionInputToString(macroInst->args[i]);
+                }
+                _expandMacroAndPopInst(moduleInst, macro->itemList, args);
+            }
+            else if(auto instruction = std::dynamic_pointer_cast<Instruction>(item))
+            {
+                moduleInst.push_back(instruction);
+            }
+        }
+    }
+
     // Helper function to populate instructions from a module
     void _popInst(std::shared_ptr<Module> mod, std::vector<std::shared_ptr<Item>>& moduleInst)
     {
@@ -54,11 +254,11 @@ namespace rocisa
     }
 
     // Helper function to count cycles
-    int _countCycles(std::shared_ptr<Module> item, int numWaves)
+    int _countCycles(std::shared_ptr<Module> item, int numWaves, MacroTable& macros)
     {
         Tensilelite::Formocast formocast;
         std::vector<std::shared_ptr<Item>> moduleInst;
-        _popInst(item, moduleInst);
+        _popInst(item, moduleInst, macros);
 
         int cycles = 0;
         int hwMFMA = -99;
@@ -75,6 +275,14 @@ namespace rocisa
             if(auto subModule = std::dynamic_pointer_cast<Module>(item))
             {
                 throw std::runtime_error("Module should be instructions here.");
+            }
+            else if(auto subModule = std::dynamic_pointer_cast<MacroInstruction>(item))
+            {
+                throw std::runtime_error("MacroInst should be instructions here.");
+            }
+            else if(auto subModule = std::dynamic_pointer_cast<Macro>(item))
+            {
+                throw std::runtime_error("Macro should be instructions here.");
             }
             else if(auto mfmaInst = std::dynamic_pointer_cast<MFMAInstruction>(item))
             {
@@ -175,7 +383,7 @@ namespace rocisa
             }
             if(auto instruction = std::dynamic_pointer_cast<Instruction>(item))
             {
-                instruction->comment = "This is " + std::to_string(cycles) + "-cycle"; // for debug
+                instruction->comment = instruction->comment + " <This is " + std::to_string(cycles) + "-cycle>"; // for debug
             }
         }
         if(!isEndOfLoop)
@@ -186,6 +394,11 @@ namespace rocisa
         }
         return cycles * 4; // 4 for gfx9
     }
+    int _countCycles(std::shared_ptr<Module> item, int numWaves)
+    {
+        MacroTable macros;
+        return _countCycles(item, numWaves, macros);
+    }
 
     // Function to calculate math clocks in an unrolled loop
     int _calculateMathClocksInUnrolledLoop(std::shared_ptr<Module> module, int numWaves)
@@ -193,6 +406,8 @@ namespace rocisa
         // Kernel: openLoop->loopBody->noLoadLoop
         int  cycles     = -1;
         bool isOpenLoop = false;
+        MacroTable macros;
+        _getMacros(module, macros);
 
         for(auto& item : module->items())
         {
@@ -201,7 +416,7 @@ namespace rocisa
             {
                 if(subModule->name == "loopBody")
                 {
-                    cycles = _countCycles(subModule, numWaves);
+                    cycles = _countCycles(subModule, numWaves, macros);
                     return cycles;
                 }
             }
