@@ -230,6 +230,10 @@ namespace rocisa
                 }
                 _expandMacroAndPopInst(moduleInst, macro->itemList, args);
             }
+            else if(auto label = std::dynamic_pointer_cast<Label>(item))
+            {
+                moduleInst.push_back(label);
+            }
             else if(auto instruction = std::dynamic_pointer_cast<Instruction>(item))
             {
                 moduleInst.push_back(instruction);
@@ -270,6 +274,7 @@ namespace rocisa
         bool isEndOfLoop  = false;
         bool isPreviousLR = false;
         auto isaVersion   = rocIsa::getInstance().getKernel().isaVersion;
+        bool skip = false;
         for(auto& item : moduleInst)
         {
             if(auto subModule = std::dynamic_pointer_cast<Module>(item))
@@ -283,6 +288,36 @@ namespace rocisa
             else if(auto subModule = std::dynamic_pointer_cast<Macro>(item))
             {
                 throw std::runtime_error("Macro should be instructions here.");
+            }
+            else if(auto label = std::dynamic_pointer_cast<Label>(item))
+            {
+                auto labelStr = std::visit(
+                    [](auto&& arg) -> std::string {
+                        using T = std::decay_t<decltype(arg)>;
+                        if constexpr(std::is_same_v<T, int>)
+                        {
+                            return std::to_string(arg);
+                        }
+                        else if constexpr(std::is_same_v<T, std::string>)
+                        {
+                            return arg;
+                        }
+                    },
+                    label->label);
+                std::regex simdBranchesPattern(".*Loop(Skip)?BeginL(_\\d+)?.*");
+                std::smatch match;
+                if(std::regex_match(labelStr, match, simdBranchesPattern))
+                {
+                    skip = match[1].matched || (match[2].matched && match.str(2) != "_0");
+                }
+                else
+                {
+                    skip = false;
+                }
+            }
+            else if(skip)
+            {
+                continue;
             }
             else if(auto mfmaInst = std::dynamic_pointer_cast<MFMAInstruction>(item))
             {
@@ -371,7 +406,8 @@ namespace rocisa
             {
                 cycles = std::max(cycles + jumpOverhead, hwMFMA + 4);
                 // End of loop
-                if(branchInst->labelName.find("label_LoopBeginL") != std::string::npos ) //branchInst->labelName == "label_LoopBeginL")
+                auto pos = branchInst->labelName.find("label_LoopBeginL");
+                if(pos != std::string::npos && pos == 0) //branchInst->labelName == "label_LoopBeginL")
                 {
                     isEndOfLoop = true;
                     break;
