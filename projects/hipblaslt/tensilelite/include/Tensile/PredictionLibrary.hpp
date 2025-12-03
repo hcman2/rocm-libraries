@@ -350,7 +350,7 @@ namespace TensileLite
                     auto& tbInfo2 = std::get<2>(metric2);
                     // guard for "strict-weak-ordering" in sorting...
                     if(tbInfo1 == tbInfo2)
-                        return false;
+                        return ms1 < ms2;
 
                     // NOTE:
                     // isBetter=true means 2nd is faster, false means Equal
