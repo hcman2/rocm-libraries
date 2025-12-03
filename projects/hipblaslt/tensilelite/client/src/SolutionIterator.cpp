@@ -395,12 +395,13 @@ namespace TensileLite
             if (m_predictionThreshold > 1.0)
             {
                 m_reporter->report(ResultKey::SolutionProgress,
-                    concatenate("hitrate,",m_hitrate[m_currentSolutionIdx],",",m_currentSolutionIdx,"->",m_currentPrediction," us, ",m_currentSolutionIdx,"/",m_lastSolutionIdx));
+                     concatenate(m_currentSolutionIdx, "/", m_lastSolutionIdx));
+                
             }
             else
             {
-                 m_reporter->report(ResultKey::SolutionProgress,
-                     concatenate(m_currentSolutionIdx, "/", m_lastSolutionIdx));
+                m_reporter->report(ResultKey::SolutionProgress,
+                    concatenate("hitrate,",m_hitrate[m_currentSolutionIdx],",",m_currentSolutionIdx,"->",m_currentPrediction," us, ",m_currentSolutionIdx,"/",m_lastSolutionIdx));
             }
         }
 
