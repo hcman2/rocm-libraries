@@ -1122,12 +1122,17 @@ namespace Tensilelite
             pp.hitRate = 0;
             return pp;
         }
-        if (((K >= 64 && depthU <=32) || (K <= 32 && depthU > 32) || (K > 32 && depthU > K)) && NumBatches < hw_consts.NumCUs && sizeMapping.matrixInstruction[2] >= 32)
+        if(problem.dataType == origami::data_type_t::BFloat16 || problem.dataType == origami::data_type_t::Half)
         {
-            //std::cout<<"K:"<<K<<",depthU:"<<depthU<<",NumBatches:"<<NumBatches<<",sizeMapping.matrixInstruction[3]:"<<sizeMapping.matrixInstruction[3]<<std::endl;
-            pp.microSeconds = 9999999.9;
-            pp.hitRate = 0;
-            return pp;
+            //TODO: handle TF32 problem so that check the BPE here.
+            if(problem.bpeA == 2 && problem.bpeB == 2)
+                if (((K >= 64 && depthU <=32) || (K <= 32 && depthU > 32) || (K > 32 && depthU > K)) && NumBatches < hw_consts.NumCUs && sizeMapping.matrixInstruction[2] >= 32)
+                {
+                    std::cout<<"K:"<<K<<",depthU:"<<depthU<<",NumBatches:"<<NumBatches<<",sizeMapping.matrixInstruction[2]:"<<sizeMapping.matrixInstruction[2]<<std::endl;
+                    pp.microSeconds = 9999999.9;
+                    pp.hitRate = 0;
+                    return pp;
+                }
         }
 
         // 4. Derived Problem/Workgroup Dimensions
