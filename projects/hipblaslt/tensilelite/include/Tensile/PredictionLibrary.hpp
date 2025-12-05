@@ -355,7 +355,18 @@ namespace TensileLite
                     // NOTE:
                     // isBetter=true means 2nd is faster, false means Equal
                     // so we need to put tbInfo1 in the 2nd arg.
-                    return formocast.isBetter(tbInfo2, tbInfo1);
+                    if(formocast.isBetter(tbInfo2, tbInfo1))
+                    {
+                        return true;
+                    }
+                    else if(formocast.isBetter(tbInfo1, tbInfo2))
+                    {
+                        return false;
+                    }
+                    else
+                    {
+                        return ms1 < ms2;
+                    }
                 }
                 // sort from: (small -> large) = (faster -> slower) , return TRUE means metric1 is faster
                 return ms1 < ms2;

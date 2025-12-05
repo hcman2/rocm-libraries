@@ -916,10 +916,6 @@ namespace Tensilelite
     //   False doesn't means worse, means tie (equal) --> IMPORTANT note since this would be used in std::sort
     bool Formocast::isBetter(TieBreakerInfo previousSolution, TieBreakerInfo currentSolution) const
     {
-        // just early return, return false means equal
-        if(previousSolution == currentSolution)
-            return false;
-
         double M = problem.M;
         double N = problem.N;
         double NumBatches = problem.NumBatches;
