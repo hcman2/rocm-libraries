@@ -3628,6 +3628,14 @@ rocblaslt_status getBestSolutions(RocblasltContractionProblem const& prob,
 
     auto algoCount = min(static_cast<size_t>(requestedAlgoCount), solutions.size());
     memset(heuristicResultsArray, 0, sizeof(rocblaslt_matmul_heuristic_result) * algoCount);
+
+    // // debug
+    // for(size_t i = 0; i < algoCount; ++i)
+    // {
+    //     auto& solution = solutions[i];
+    //     std::cout << "getBestSolutions(): sol-idx = " << solution->index << ", sol-tag = " << solution->matchingTag() << std::endl;
+    // }
+
     _convertToHeuristicResultArray(solutions,
                                    requestedAlgoCount,
                                    heuristicResultsArray,

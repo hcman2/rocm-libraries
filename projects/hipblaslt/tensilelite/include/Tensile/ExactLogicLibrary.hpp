@@ -165,6 +165,11 @@ namespace TensileLite
                     for(auto& sol : rowSolutions)
                         sol->tag = MySolution::MatchingTag::Equal;
                 }
+                else if(dynamic_cast<Predicates::Contraction::PredictionMatching*>(row.first.value.get()))
+                {
+                    for(auto& sol : rowSolutions)
+                        sol->tag = MySolution::MatchingTag::Prediction;
+                }
                 else if(dynamic_cast<Predicates::Contraction::GridBasedMatching*>(row.first.value.get()))
                 {
                     for(auto& sol : rowSolutions)
@@ -179,11 +184,6 @@ namespace TensileLite
                 {
                     for(auto& sol : rowSolutions)
                         sol->tag = MySolution::MatchingTag::FreeSize;
-                }
-                else if(dynamic_cast<Predicates::Contraction::PredictionMatching*>(row.first.value.get()))
-                {
-                    for(auto& sol : rowSolutions)
-                        sol->tag = MySolution::MatchingTag::Prediction;
                 }
                 // TODO- Experimental?
 
@@ -258,6 +258,11 @@ namespace TensileLite
                         for(auto& sol : solutions)
                             sol->tag = MySolution::MatchingTag::Equal;
                     }
+                    else if(dynamic_cast<Predicates::Contraction::PredictionMatching*>(row.first.value.get()))
+                    {
+                        for(auto& sol : solutions)
+                            sol->tag = MySolution::MatchingTag::Prediction;
+                    }
                     else if(dynamic_cast<Predicates::Contraction::GridBasedMatching*>(row.first.value.get()))
                     {
                         for(auto& sol : solutions)
@@ -272,11 +277,6 @@ namespace TensileLite
                     {
                         for(auto& sol : solutions)
                             sol->tag = MySolution::MatchingTag::FreeSize;
-                    }
-                    else if(dynamic_cast<Predicates::Contraction::PredictionMatching*>(row.first.value.get()))
-                    {
-                        for(auto& sol : solutions)
-                            sol->tag = MySolution::MatchingTag::Prediction;
                     }
                     // TODO- Experimental
 

@@ -1851,13 +1851,15 @@ rocblaslt_status
 
         static TensileLite::StringSet emptySet({});
         static TensileLite::StringSet defExcludedSet({"GridBasedMatching", "PredictionMatching"});
+        static TensileLite::StringSet defExcludedSetFC({"GridBasedMatching", "FreeSizeMatching", "PredictionMatching"});
+        const bool use_formocast = TensileLite::Debug::Instance().usePredictionSelection() == 1;
 
         // Try to get size independent solutions from getAllSolutions()
         if(requestedAlgoCount > *returnAlgoCount)
         {
             // set excluded lib here: if the #-returned < #-requested, we'll call getAll.
             // But in that case, we don't need to get GridBased or Prediction which are already returned here
-            TensileLite::Debug::Instance().setExcludedLibFromGetAll(defExcludedSet);
+            TensileLite::Debug::Instance().setExcludedLibFromGetAll(use_formocast ? defExcludedSetFC : defExcludedSet);
 
             std::vector<rocblaslt_matmul_heuristic_result> allSolutionsResults;
             if(rocblaslt_status_success
@@ -2110,13 +2112,15 @@ rocblaslt_status
         int duplicated_counts = 0;
         static TensileLite::StringSet emptySet({});
         static TensileLite::StringSet defExcludedSet({"GridBasedMatching", "PredictionMatching"});
+        static TensileLite::StringSet defExcludedSetFC({"GridBasedMatching", "FreeSizeMatching", "PredictionMatching"});
+        const bool use_formocast = TensileLite::Debug::Instance().usePredictionSelection() == 1;
 
         // Try to get size independent solutions from getAllSolutions()
         if(requestedAlgoCount > results.size())
         {
             // set excluded lib here: if the #-returned < #-requested, we'll call getAll.
             // But in that case, we don't need to get GridBased or Prediction which are already returned here
-            TensileLite::Debug::Instance().setExcludedLibFromGetAll(defExcludedSet);
+            TensileLite::Debug::Instance().setExcludedLibFromGetAll(use_formocast ? defExcludedSetFC : defExcludedSet);
 
             std::vector<rocblaslt_matmul_heuristic_result> allSolutionsResults;
             size_t                                         workspaceSizeInBytes = 0;
