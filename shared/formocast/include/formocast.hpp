@@ -121,6 +121,10 @@ namespace Tensilelite
         int checkLocalReadFinished(int currentCycle, std::queue<int>& fifo, int numLR);
         int checkLocalReadFIFOFull(int currentCycle, std::queue<int>& fifo, int bpRead, int numWaves, bool isStall);
         void pushLocalRead(int currentCycle, std::queue<int>& fifo, int bpr, bool isGfx950);
+        
+        // Auto GSU
+        int16_t getAutoGSU(int16_t GSU, uint32_t numCUs, uint32_t numWGs, uint32_t MT0, uint32_t MT1, uint32_t MT2, uint32_t M, uint32_t N, uint32_t B, uint32_t K, uint32_t synchronizerSizePerWG, int globalAccumulation);
+
 
     } // namespace Simulator
 } // namespace Tensilelite

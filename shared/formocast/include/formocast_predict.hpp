@@ -55,6 +55,12 @@ namespace Tensilelite
             int LocalSplitU = 1;
 
             std::array<int, 2> waveGroup;
+
+            // StreamK parameters
+            int streamK = 0;
+            int streamKAtomic = 0;
+
+            size_t synchronizerSizePerWG = 0;
         };
         struct PredictedPerformance
         {

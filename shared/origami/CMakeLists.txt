@@ -72,6 +72,7 @@ target_include_directories(
     origami-headers INTERFACE $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
                               $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>
 )
+
 target_sources(
     origami-headers
     INTERFACE $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include/origami/gemm.hpp>
@@ -82,7 +83,7 @@ target_sources(
               $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include/origami/types.hpp>
 )
 
-target_link_libraries(origami PUBLIC roc::origami-headers)
+target_link_libraries(origami PUBLIC roc::origami-headers roc::formocast)
 
 target_sources(
     origami

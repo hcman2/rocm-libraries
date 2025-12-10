@@ -11,8 +11,8 @@ namespace origami {
 
 runtime_options::runtime_options() { update_from_env(); }
 
-runtime_options::runtime_options(bool debug, bool heuristics, double variance)
-    : debug_enabled(debug), heuristics_enabled(heuristics), heuristics_variance(variance) {}
+runtime_options::runtime_options(bool debug, bool heuristics, double variance, prediction_mode_t pred_mode)
+    : debug_enabled(debug), heuristics_enabled(heuristics), heuristics_variance(variance), prediction_mode(pred_mode) {}
 
 bool runtime_options::read_debug_from_env() {
   const char* env = std::getenv("ANALYTICAL_GEMM_DEBUG");
@@ -38,10 +38,23 @@ double runtime_options::read_heuristics_variance_from_env() {
   return default_variance;
 }
 
+prediction_mode_t runtime_options::read_prediction_mode_from_env() {
+  const char* env = std::getenv("ANALYTICAL_GEMM_PREDICTION_MODE");
+  if (env) {
+    std::string value(env);
+    if (value == "0") return prediction_mode_t::fast;
+    if (value == "1") return prediction_mode_t::accurate;
+    if (value == "2") return prediction_mode_t::dynamic;
+  }
+  // Default to fast mode if not set or invalid
+  return prediction_mode_t::fast;
+}
+
 void runtime_options::update_from_env() {
   debug_enabled       = read_debug_from_env();
   heuristics_enabled  = read_heuristics_from_env();
   heuristics_variance = read_heuristics_variance_from_env();
+  prediction_mode = read_prediction_mode_from_env();
 }
 
 int datatype_to_bits(data_type_t type) {

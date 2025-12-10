@@ -566,7 +566,7 @@ namespace Tensilelite
         int NLCB = sizeMapping.NumLoadsCoalescedB;
 
         //GlobalSplitU
-        uint32_t GlobalSplitU = sizeMapping.globalSplitU;
+        //uint32_t GlobalSplitU = Simulator::getAutoGSU(sizeMapping.globalSplitU, hw_consts.NumCUs, getNumWorkGroups(problem, sizeMapping), MT0, MT1, depthU, M, N, NumBatches, K, sizeMapping.synchronizerSizePerWG, sizeMapping.globalAccumulation);
         //LocalSplitU
         int LSU = sizeMapping.LocalSplitU;
 
@@ -578,26 +578,10 @@ namespace Tensilelite
         //assert(math_clk >= minMathClock);
         //math_clk = std::max(math_clk, minMathClock); //FIXME: CMS kernel has incorrect MathClocksUnrolledLoop
 
-        // Debug output (commented)
-        //std::cout<<"DTVA         =          "<<DTVA<<std::endl;
-        //std::cout<<"DTVB         =          "<<DTVB<<std::endl;
-        //std::cout<<"MT0          =          "<<MT0<<std::endl;
-        //std::cout<<"MT1          =          "<<MT1<<std::endl;
-        //std::cout<<"GlobalSplitU =          "<<GlobalSplitU<<std::endl;
-        //std::cout<<"math_clk     =          "<<math_clk<<std::endl;
-        //std::cout<<"WGM          =          "<<WGM<<std::endl;
-        //std::cout<<"CUOccupancy  =          "<<CUOccupancy<<std::endl;
-        //std::cout<<"depthU       =          "<<depthU<<std::endl;
-        //std::cout<<"PGR          =          "<<PGR<<std::endl;
-        //std::cout<<"GWVWD        =          "<<GWVWD<<std::endl;
-        //std::cout<<"miSize       =          "<<miSize<<std::endl;
-
         // 3.1 Early terminate. FIXME: Can filter most of the solutions with an outside function.
         // FIXME: add an extra function to reject the solutions first.
-        if (GlobalSplitU == 0)
+        if (sizeMapping.streamK > 0)
         {
-            // FIXME: Need to support streamK kernels.
-            GlobalSplitU = 1;
             pp.microSeconds = 9999999.9;
             pp.hitRate = 0;
             return pp;
@@ -623,9 +607,11 @@ namespace Tensilelite
         }
 
         // 4. Derived Problem/Workgroup Dimensions
-        double K_AfterGSU = ceilDivide((uint32_t)K, GlobalSplitU);
         uint32_t M_WGs_total = ceilDivide(M, MT0);
         uint32_t N_WGs_total = ceilDivide(N, MT1);
+        // 4.1 Auto GSU
+        uint32_t GlobalSplitU = Simulator::getAutoGSU(sizeMapping.globalSplitU, hw_consts.NumCUs, M_WGs_total * N_WGs_total, MT0, MT1, depthU, M, N, NumBatches, K, sizeMapping.synchronizerSizePerWG, sizeMapping.globalAccumulation);
+        double K_AfterGSU = ceilDivide((uint32_t)K, GlobalSplitU);
         int N_WGs_per_tile_XCD = std::min((uint32_t)WGM, N_WGs_total);
         int M_WGs_per_tile_XCD
             = std::min(M_WGs_total, ceilDivide(int(hw_consts.NumCUs / 8), N_WGs_per_tile_XCD));

@@ -20,6 +20,8 @@
 #include "origami/gemm.hpp"
 #include "origami/streamk.hpp"
 
+#include "formocast_predict.hpp"
+
 namespace origami {
 double calculate_work_utilization(const problem_t& problem, const config_t& config) {
   const size_t M = problem.size.m;
@@ -704,6 +706,9 @@ double compute_tile_latency(const problem_t& problem,
 
   // 1) Compute per-tile latencies
   double L_compute = compute_mt_compute_latency(problem, hardware, config);
+  // FIXME: This is just an example to use dynamic mode.
+  if (get_runtime_options(config).prediction_mode == origami::prediction_mode_t::dynamic)
+    L_compute = config.compute_latency_hint / hardware.compute_clock_ghz;
 
   double L_mem =
       compute_memory_latency(problem, hardware, config, num_active_cus, splitting_factor);
@@ -825,6 +830,74 @@ double compute_timestep_latency(const problem_t& problem,
   return L_wave;
 }
 
+
+static void setupFormoCast(Tensilelite::Formocast& formocast, const problem_t& p, const hardware_t& hw, const config_t& cfg)
+{
+    // Get from problem_t
+    Tensilelite::Formocast::ProblemInfo problemInfo;
+    problemInfo.M          = p.size.m;
+    problemInfo.N          = p.size.n;
+    problemInfo.NumBatches = p.batch;
+
+    problemInfo.K          = p.size.k;
+    problemInfo.transA     = (p.a_transpose == transpose_t::T);
+    problemInfo.transB     = (p.a_transpose == transpose_t::T);
+    problemInfo.bpeA       = data_type_to_bytes(p.a_dtype);
+    problemInfo.bpeB       = data_type_to_bytes(p.b_dtype);
+    problemInfo.bpeD       = data_type_to_bytes(p.d_dtype);
+    problemInfo.bpeCompute = data_type_to_bytes(p.mi_dtype);
+
+    // // GetSizeMapping
+    // auto                                sizeMapping = solution.getSizeMapping();
+    Tensilelite::Formocast::SizeMapping sm;
+
+    sm.waveNum      = cfg.waveNum;
+    
+    sm.streamK      = cfg.streamK;
+
+    sm.macroTile[0]      = cfg.mt.m;
+    sm.macroTile[1]      = cfg.mt.n;
+    sm.depthU            = cfg.mt.k;
+
+    sm.matrixInstruction[0] = cfg.mi.m;
+    sm.matrixInstruction[1] = cfg.mi.n;
+    sm.matrixInstruction[2] = cfg.mi.k;
+
+    // TODO : pass tensilelite parameters to formocast
+    sm.grvwA = cfg.grvwA;
+    sm.grvwB = cfg.grvwB;
+    sm.gwvwC = cfg.gwvwC;
+    sm.gwvwD = cfg.gwvwD;
+    sm.globalSplitU       = cfg.globalSplitU;  // Use pre-calculated value from config
+    sm.workGroupMapping   = cfg.workgroup_mapping;
+    sm.globalAccumulation = cfg.globalAccumulation;
+
+    sm.workGroupMappingXCC      = cfg.workGroupMappingXCC;
+    sm.workGroupMappingXCCGroup = cfg.workGroupMappingXCCGroup;
+    sm.globalSplitUCoalesced    = cfg.globalSplitUCoalesced;
+    sm.globalSplitUWorkGroupMappingRoundRobin
+        = cfg.globalSplitUWorkGroupMappingRoundRobin;
+
+    sm.CUOccupancy            = cfg.occupancy;
+    sm.PrefetchGlobalRead     = cfg.PrefetchGlobalRead;
+    sm.MathClocksUnrolledLoop = cfg.compute_latency_hint;
+
+    sm.DirectToVgprA      = cfg.DirectToVgprA;
+    sm.DirectToVgprB      = cfg.DirectToVgprB;
+    sm.NumLoadsCoalescedA = cfg.NumLoadsCoalescedA;
+    sm.NumLoadsCoalescedB = cfg.NumLoadsCoalescedB;
+    sm.VectorWidthA       = cfg.VectorWidthA;
+    sm.VectorWidthB       = cfg.VectorWidthB; 
+    sm.LocalSplitU        = cfg.LocalSplitU;
+    sm.waveGroup[0] = cfg.waveGroup0;
+    sm.waveGroup[1] = cfg.waveGroup1;
+    sm.synchronizerSizePerWG = cfg.synchronizerSizePerWG;
+    formocast.setProblem(problemInfo);
+    formocast.setSolution(sm);
+    // Create a non-owning shared_ptr (with empty deleter) since hw's lifetime is managed externally
+    formocast.setHardware(std::shared_ptr<origami::hardware_t>(const_cast<origami::hardware_t*>(&hw), [](origami::hardware_t*){}));
+}
+
 // Compute the total latency of a gemm based on the latency of one wave multiplied by the number of
 // waves A wave is defined as : The time it takes for one CU to complete one K-complete output tile
 double compute_total_latency(const problem_t& problem,
@@ -889,74 +962,87 @@ double compute_total_latency(const problem_t& problem,
     }
   }
 
-  // 1-1) To compute the latency, use default WGM. And WGM can't be greater than one
-  int defaultWGM = static_cast<int>(ceil(std::sqrt(hardware.N_CU / hardware.NUM_XCD)));
-  auto config_with_default_wgm              = config;
-  config_with_default_wgm.workgroup_mapping = std::max(defaultWGM, 1);
+  double total_latency;
+  if (get_runtime_options(config).prediction_mode == origami::prediction_mode_t::accurate)
+  {
+    Tensilelite::Formocast formocast;
+    setupFormoCast(formocast, 
+                    problem,
+                    hardware,
+                    config);
+    auto pp = formocast.predictedPerformance();
+    total_latency = pp.microSeconds;
+  }
+  else
+  {
+    // 1-1) To compute the latency, use default WGM. And WGM can't be greater than one
+    int defaultWGM = static_cast<int>(ceil(std::sqrt(hardware.N_CU / hardware.NUM_XCD)));
+    auto config_with_default_wgm              = config;
+    config_with_default_wgm.workgroup_mapping = std::max(defaultWGM, 1);
 
-  // 1-2) Find CU occupancy
-  auto [num_wgs, num_active_cus, numWaves, splitting_factor] = compute_cu_occupancy(
-      problem, hardware, config_with_default_wgm, grid_selection_t::k_split_aware, max_cus);
+    // 1-2) Find CU occupancy
+    auto [num_wgs, num_active_cus, numWaves, splitting_factor] = compute_cu_occupancy(
+        problem, hardware, config_with_default_wgm, grid_selection_t::k_split_aware, max_cus);
 
-  // 2) Compute latency of a wave
-  // Compute latency of a wave
-  double L_wave = compute_timestep_latency(
-      problem, hardware, config_with_default_wgm, num_active_cus, splitting_factor);
+    // 2) Compute latency of a wave
+    // Compute latency of a wave
+    double L_wave = compute_timestep_latency(
+        problem, hardware, config_with_default_wgm, num_active_cus, splitting_factor);
 
-  // Compute latency for all waves and return it as the latency for the MT/problem
-  double total_latency = L_wave * numWaves;
+    // Compute latency for all waves and return it as the latency for the MT/problem
+    total_latency = L_wave * numWaves;
 
-  // 3) Customized heuristics
-  // TODO These are quantifying effects that don't work in the current math.
-  // TODO THESE SHOULD BE TEMPORARY FIXES AND BE MORE SOLIDLY INTEGRATED LATER
-  bool heuristics = get_runtime_options(config).heuristics_enabled;
+    // 3) Customized heuristics
+    // TODO These are quantifying effects that don't work in the current math.
+    // TODO THESE SHOULD BE TEMPORARY FIXES AND BE MORE SOLIDLY INTEGRATED LATER
+    bool heuristics = get_runtime_options(config).heuristics_enabled;
 
-  if (heuristics) {
-    if (MT_M == 64 && MT_N == 32 && MT_K == 32 && !b_trans && a_bits == 16) {
-      total_latency = total_latency * 10;
-    }
-
-    bool tf32_emu = ((problem.mi_dtype == data_type_t::XFloat32) &&
-                     (hardware.arch == hardware_t::architecture_t::gfx950));
-
-    //  Heuristics for TF32
-    if (tf32_emu) {
-      double bytes_per_element = a_bytes;
-      double arith             = emulated_tf32_arithmetic_intensity(M, N, K, bytes_per_element);
-      double compute_threshold = 1000;  // threshold empirically determined.
-
-      // The kernel for this is more optimized (Custom kernel NT)
-      if ((!a_trans && b_trans) && MT_M == 256 && MT_N == 256 && MT_K == 32) {
-        if (arith < compute_threshold)
-          total_latency = total_latency * 0.6;
-        else
-          total_latency = total_latency * 0.4;
+    if (heuristics) {
+      if (MT_M == 64 && MT_N == 32 && MT_K == 32 && !b_trans && a_bits == 16) {
+        total_latency = total_latency * 10;
       }
 
-      // The kernel for this is more optimized (Custom kernel NN)
-      if ((!a_trans && !b_trans) && MT_M == 256 && MT_N == 256 && MT_K == 32) {
-        if (arith < compute_threshold)
-          total_latency = total_latency * 0.8;
-        else
-          total_latency = total_latency * 0.4;
-      }
+      bool tf32_emu = ((problem.mi_dtype == data_type_t::XFloat32) &&
+                      (hardware.arch == hardware_t::architecture_t::gfx950));
 
-      // The kernel for this is more optimized (Custom kernel TN)
-      if ((a_trans && !b_trans) && MT_M == 256 && MT_N == 256 && MT_K == 32) {
-        if (arith < compute_threshold)
-          total_latency = total_latency * 0.8;
-        else
-          total_latency = total_latency * 0.4;
-      }
+      //  Heuristics for TF32
+      if (tf32_emu) {
+        double bytes_per_element = a_bytes;
+        double arith             = emulated_tf32_arithmetic_intensity(M, N, K, bytes_per_element);
+        double compute_threshold = 1000;  // threshold empirically determined.
 
-      // Bias large DU where K-dimension is large and M and N are small.
-      if ((K >= (M * 16) && K >= (N * 16)) && (MT_K >= 128)) {
-        total_latency = total_latency * 0.5;
+        // The kernel for this is more optimized (Custom kernel NT)
+        if ((!a_trans && b_trans) && MT_M == 256 && MT_N == 256 && MT_K == 32) {
+          if (arith < compute_threshold)
+            total_latency = total_latency * 0.6;
+          else
+            total_latency = total_latency * 0.4;
+        }
+
+        // The kernel for this is more optimized (Custom kernel NN)
+        if ((!a_trans && !b_trans) && MT_M == 256 && MT_N == 256 && MT_K == 32) {
+          if (arith < compute_threshold)
+            total_latency = total_latency * 0.8;
+          else
+            total_latency = total_latency * 0.4;
+        }
+
+        // The kernel for this is more optimized (Custom kernel TN)
+        if ((a_trans && !b_trans) && MT_M == 256 && MT_N == 256 && MT_K == 32) {
+          if (arith < compute_threshold)
+            total_latency = total_latency * 0.8;
+          else
+            total_latency = total_latency * 0.4;
+        }
+
+        // Bias large DU where K-dimension is large and M and N are small.
+        if ((K >= (M * 16) && K >= (N * 16)) && (MT_K >= 128)) {
+          total_latency = total_latency * 0.5;
+        }
       }
     }
   }
-
-
+    
   return total_latency;
 }
 

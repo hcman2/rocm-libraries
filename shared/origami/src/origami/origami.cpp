@@ -12,6 +12,7 @@
 #include "origami/origami.hpp"
 #include "origami/streamk.hpp"
 #include "origami/types.hpp"
+#include "formocast_predict.hpp"
 
 namespace origami {
 
@@ -312,71 +313,88 @@ std::vector<prediction_result_t> rank_configs(const problem_t& problem,
       break;
   }
 
-  // Sort top candidates by arithmetic intensity (descending - highest first)
-  if (num_the_same > 1) {
-    std::stable_sort(results.begin(),
-                     results.begin() + num_the_same,
-                     [&compute_arithmetic_intensity](const prediction_result_t& a,
-                                                     const prediction_result_t& b) {
-                       return compute_arithmetic_intensity(a.config) >
-                              compute_arithmetic_intensity(b.config);
-                     });
-
-    // After arithmetic intensity tie-breaking, check if we still have ties
-    // among the top results (those with same latency and arithmetic intensity)
-    // Check if the top tiles still have the same arithmetic intensity
-    double first_ai    = compute_arithmetic_intensity(results.front().config);
-    size_t num_same_ai = 1;
-    for (size_t i = 1; i < num_the_same; ++i) {
-      double current_ai = compute_arithmetic_intensity(results[i].config);
-      if (std::abs(current_ai - first_ai) < 1e-6) {
-        num_same_ai++;
-      } else {
-        break;
-      }
-    }
-
-    // If we still have ties after arithmetic intensity, apply problem dimension tie-breaker
-    if (num_same_ai > 1) {
-      // Problem dimension-based tie breaker:
-      // If M > N, prefer tiles with larger MT_M
-      // If N > M, prefer tiles with larger MT_N
-      // If M == N, this tie-breaker doesn't apply (will use final tie-breaker)
-
-      if (problem.size.m != problem.size.n) {
-        std::stable_sort(results.begin(),
-                         results.begin() + num_same_ai,
-                         [problem](const prediction_result_t& a, const prediction_result_t& b) {
-                           if (problem.size.m > problem.size.n) {
-                             // M-dominant: prefer larger MT_M
-                             if (a.config.mt.m != b.config.mt.m)
-                               return a.config.mt.m > b.config.mt.m;
-                             // If MT_M is same, prefer larger MT_N as secondary
-                             return a.config.mt.n > b.config.mt.n;
-                           } else  // N > M
-                           {
-                             // N-dominant: prefer larger MT_N
-                             if (a.config.mt.n != b.config.mt.n)
-                               return a.config.mt.n > b.config.mt.n;
-                             // If MT_N is same, prefer larger MT_M as secondary
-                             return a.config.mt.m > b.config.mt.m;
-                           }
-                         });
-      }
-
-      // Final tie-breaker: when all else is equal (including square problems),
-      // consistently prefer tiles with larger MT_M
-      // This ensures deterministic selection regardless of input order
+  if (get_runtime_options(configs.front()).prediction_mode == prediction_mode_t::accurate) {
+    if (num_the_same > 1) {
+      // Use Formocast tie-breaker API for accurate mode
       std::stable_sort(results.begin(),
-                       results.begin() + num_same_ai,
-                       [](const prediction_result_t& a, const prediction_result_t& b) {
-                         // Prefer larger MT_M first
-                         if (a.config.mt.m != b.config.mt.m) return a.config.mt.m > b.config.mt.m;
-                         // If MT_M is same, prefer larger MT_N
-                         if (a.config.mt.n != b.config.mt.n) return a.config.mt.n > b.config.mt.n;
-                         // If both MT_M and MT_N are same, prefer larger MT_K
-                         return a.config.mt.k > b.config.mt.k;
+                       results.begin() + num_the_same,
+                       [&problem](const prediction_result_t& a, const prediction_result_t& b) {
+                         // Call Formocast tie-breaker API
+                         return Tensilelite::compareConfigTieBreaker(
+                             problem.size.m, problem.size.n, problem.size.k, problem.batch,
+                             a.config.mt.m, a.config.mt.n, a.config.mt.k, a.config.gwvwD,
+                             b.config.mt.m, b.config.mt.n, b.config.mt.k, b.config.gwvwD
+                         );
                        });
+    }
+  }
+  else {
+    // Sort top candidates by arithmetic intensity (descending - highest first)
+    if (num_the_same > 1) {
+      std::stable_sort(results.begin(),
+                      results.begin() + num_the_same,
+                      [&compute_arithmetic_intensity](const prediction_result_t& a,
+                                                      const prediction_result_t& b) {
+                        return compute_arithmetic_intensity(a.config) >
+                                compute_arithmetic_intensity(b.config);
+                      });
+
+      // After arithmetic intensity tie-breaking, check if we still have ties
+      // among the top results (those with same latency and arithmetic intensity)
+      // Check if the top tiles still have the same arithmetic intensity
+      double first_ai    = compute_arithmetic_intensity(results.front().config);
+      size_t num_same_ai = 1;
+      for (size_t i = 1; i < num_the_same; ++i) {
+        double current_ai = compute_arithmetic_intensity(results[i].config);
+        if (std::abs(current_ai - first_ai) < 1e-6) {
+          num_same_ai++;
+        } else {
+          break;
+        }
+      }
+
+      // If we still have ties after arithmetic intensity, apply problem dimension tie-breaker
+      if (num_same_ai > 1) {
+        // Problem dimension-based tie breaker:
+        // If M > N, prefer tiles with larger MT_M
+        // If N > M, prefer tiles with larger MT_N
+        // If M == N, this tie-breaker doesn't apply (will use final tie-breaker)
+
+        if (problem.size.m != problem.size.n) {
+          std::stable_sort(results.begin(),
+                          results.begin() + num_same_ai,
+                          [problem](const prediction_result_t& a, const prediction_result_t& b) {
+                            if (problem.size.m > problem.size.n) {
+                              // M-dominant: prefer larger MT_M
+                              if (a.config.mt.m != b.config.mt.m)
+                                return a.config.mt.m > b.config.mt.m;
+                              // If MT_M is same, prefer larger MT_N as secondary
+                              return a.config.mt.n > b.config.mt.n;
+                            } else  // N > M
+                            {
+                              // N-dominant: prefer larger MT_N
+                              if (a.config.mt.n != b.config.mt.n)
+                                return a.config.mt.n > b.config.mt.n;
+                              // If MT_N is same, prefer larger MT_M as secondary
+                              return a.config.mt.m > b.config.mt.m;
+                            }
+                          });
+        }
+
+        // Final tie-breaker: when all else is equal (including square problems),
+        // consistently prefer tiles with larger MT_M
+        // This ensures deterministic selection regardless of input order
+        std::stable_sort(results.begin(),
+                        results.begin() + num_same_ai,
+                        [](const prediction_result_t& a, const prediction_result_t& b) {
+                          // Prefer larger MT_M first
+                          if (a.config.mt.m != b.config.mt.m) return a.config.mt.m > b.config.mt.m;
+                          // If MT_M is same, prefer larger MT_N
+                          if (a.config.mt.n != b.config.mt.n) return a.config.mt.n > b.config.mt.n;
+                          // If both MT_M and MT_N are same, prefer larger MT_K
+                          return a.config.mt.k > b.config.mt.k;
+                        });
+      }
     }
   }
 

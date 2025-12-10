@@ -136,13 +136,58 @@ namespace TensileLite
                                 .mi = origami_mi,
                                 .occupancy
                                 = std::max(solution->sizeMapping.CUOccupancy, static_cast<int>(1)),
+                                .waveNum                   = solution->sizeMapping.waveNum,
                                 .workgroup_mapping         = solution->sizeMapping.workGroupMapping,
                                 .cache_hints_a             = solution->sizeMapping.nonTemporalA,
                                 .cache_hints_b             = solution->sizeMapping.nonTemporalB,
                                 .workspace_size            = std::numeric_limits<size_t>::max(),
                                 .workspace_size_per_elem_c = std::numeric_limits<size_t>::max(),
+                                .compute_latency_hint      = solution->sizeMapping.MathClocksUnrolledLoop,
+                                .globalSplitU              = solution->sizeMapping.globalSplitU,
+                                .globalSplitUCoalesced     = solution->sizeMapping.globalSplitUCoalesced,
+                                .globalSplitUWorkGroupMappingRoundRobin = solution->sizeMapping.globalSplitUWorkGroupMappingRoundRobin,
+                                .workGroupMappingXCC       = solution->sizeMapping.workGroupMappingXCC,
+                                .workGroupMappingXCCGroup  = solution->sizeMapping.workGroupMappingXCCGroup,
+                                .PrefetchGlobalRead        = solution->sizeMapping.PrefetchGlobalRead,
+                                .WaveSeparateGlobalReadA   = solution->sizeMapping.WaveSeparateGlobalReadA,
+                                .WaveSeparateGlobalReadB   = solution->sizeMapping.WaveSeparateGlobalReadB,
+                                .UnrollLoopSwapGlobalReadOrder = solution->sizeMapping.UnrollLoopSwapGlobalReadOrder,
+                                .DirectToVgprA             = solution->sizeMapping.DirectToVgprA,
+                                .DirectToVgprB             = solution->sizeMapping.DirectToVgprB,
+                                .NumLoadsCoalescedA        = solution->sizeMapping.NumLoadsCoalescedA,
+                                .NumLoadsCoalescedB        = solution->sizeMapping.NumLoadsCoalescedB,
+                                .VectorWidthA              = solution->sizeMapping.VectorWidthA,
+                                .VectorWidthB              = solution->sizeMapping.VectorWidthB,
+                                .grvwA                     = static_cast<int>(solution->sizeMapping.grvwA),
+                                .grvwB                     = static_cast<int>(solution->sizeMapping.grvwB),
+                                .gwvwC                     = static_cast<int>(solution->sizeMapping.gwvwC),
+                                .gwvwD                     = static_cast<int>(solution->sizeMapping.gwvwD),
+                                .LocalSplitU               = solution->sizeMapping.LocalSplitU,
+                                .globalAccumulation        = solution->sizeMapping.globalAccumulation,
+                                .waveGroup0                = solution->sizeMapping.waveGroup[0],
+                                .waveGroup1                = solution->sizeMapping.waveGroup[1],
+                                .streamK                   = solution->sizeMapping.streamK,
+                                .streamKAtomic             = solution->sizeMapping.streamKAtomic,
+                                .synchronizerSizePerWG     = solution->sizeMapping.synchronizerSizePerWG,
                             };
 
+                            // Check if config already exists - should not happen with proper operator==
+                            if(lib.origami_config_map.find(origami_config) != lib.origami_config_map.end())
+                            {
+                                std::cout << "[ERROR] Duplicate config for solution index " << index << ":\n"
+                                          << "  MT=(" << origami_config.mt.m << "," << origami_config.mt.n << "," << origami_config.mt.k << "), "
+                                          << "MI=(" << origami_config.mi.m << "," << origami_config.mi.n << "," << origami_config.mi.k << "), "
+                                          << "occupancy=" << origami_config.occupancy << ", "
+                                          << "waveNum=" << origami_config.waveNum << ", "
+                                          << "WGM=" << origami_config.workgroup_mapping << ", "
+                                          << "GSU=" << origami_config.globalSplitU << ", "
+                                          << "WGMXCC=" << origami_config.workGroupMappingXCC << std::endl;
+                                iot::setError(
+                                    io,
+                                    concatenate("[ProblemPredictionLibrary] Duplicate config detected for solution index: ",
+                                                index));
+                            }
+                            
                             lib.origami_config_list.emplace_back(origami_config);
                             lib.origami_config_map.insert(std::make_pair(origami_config, index));
                         }
@@ -162,6 +207,85 @@ namespace TensileLite
                         {
                             auto solution = slnIter->second;
                             lib.solutionmap_fc.insert(std::make_pair(index, solution));
+
+                            origami::dim3_t origami_mi;
+                            if(solution->sizeMapping.matrixInstruction[0] == 0
+                               && solution->sizeMapping.matrixInstruction[1] == 0
+                               && solution->sizeMapping.matrixInstruction[2] == 0)
+                            {
+                                // Override dot2 instruction with vector lane widths
+                                origami_mi = {1, 1, 64};
+                            }
+                            else
+                            {
+                                origami_mi = {
+                                    static_cast<size_t>(solution->sizeMapping.matrixInstruction[0]),
+                                    static_cast<size_t>(solution->sizeMapping.matrixInstruction[1]),
+                                    static_cast<size_t>(
+                                        solution->sizeMapping.matrixInstruction[2])};
+                            }
+
+                            origami::config_t origami_config = {
+                                .mt = {solution->sizeMapping.macroTile.x,
+                                       solution->sizeMapping.macroTile.y,
+                                       solution->sizeMapping.depthU},
+                                .mi = origami_mi,
+                                .occupancy
+                                = std::max(solution->sizeMapping.CUOccupancy, static_cast<int>(1)),
+                                .waveNum                   = solution->sizeMapping.waveNum,
+                                .workgroup_mapping         = solution->sizeMapping.workGroupMapping,
+                                .cache_hints_a             = solution->sizeMapping.nonTemporalA,
+                                .cache_hints_b             = solution->sizeMapping.nonTemporalB,
+                                .workspace_size            = std::numeric_limits<size_t>::max(),
+                                .workspace_size_per_elem_c = std::numeric_limits<size_t>::max(),
+                                .compute_latency_hint      = solution->sizeMapping.MathClocksUnrolledLoop,
+                                .globalSplitU              = solution->sizeMapping.globalSplitU,
+                                .globalSplitUCoalesced     = solution->sizeMapping.globalSplitUCoalesced,
+                                .globalSplitUWorkGroupMappingRoundRobin = solution->sizeMapping.globalSplitUWorkGroupMappingRoundRobin,
+                                .workGroupMappingXCC       = solution->sizeMapping.workGroupMappingXCC,
+                                .workGroupMappingXCCGroup  = solution->sizeMapping.workGroupMappingXCCGroup,
+                                .PrefetchGlobalRead        = solution->sizeMapping.PrefetchGlobalRead,
+                                .WaveSeparateGlobalReadA   = solution->sizeMapping.WaveSeparateGlobalReadA,
+                                .WaveSeparateGlobalReadB   = solution->sizeMapping.WaveSeparateGlobalReadB,
+                                .UnrollLoopSwapGlobalReadOrder = solution->sizeMapping.UnrollLoopSwapGlobalReadOrder,
+                                .DirectToVgprA             = solution->sizeMapping.DirectToVgprA,
+                                .DirectToVgprB             = solution->sizeMapping.DirectToVgprB,
+                                .NumLoadsCoalescedA        = solution->sizeMapping.NumLoadsCoalescedA,
+                                .NumLoadsCoalescedB        = solution->sizeMapping.NumLoadsCoalescedB,
+                                .VectorWidthA              = solution->sizeMapping.VectorWidthA,
+                                .VectorWidthB              = solution->sizeMapping.VectorWidthB,
+                                .grvwA                     = static_cast<int>(solution->sizeMapping.grvwA),
+                                .grvwB                     = static_cast<int>(solution->sizeMapping.grvwB),
+                                .gwvwC                     = static_cast<int>(solution->sizeMapping.gwvwC),
+                                .gwvwD                     = static_cast<int>(solution->sizeMapping.gwvwD),
+                                .LocalSplitU               = solution->sizeMapping.LocalSplitU,
+                                .globalAccumulation        = solution->sizeMapping.globalAccumulation,
+                                .waveGroup0                = solution->sizeMapping.waveGroup[0],
+                                .waveGroup1                = solution->sizeMapping.waveGroup[1],
+                                .streamK                   = solution->sizeMapping.streamK,
+                                .streamKAtomic             = solution->sizeMapping.streamKAtomic,
+                                .synchronizerSizePerWG     = solution->sizeMapping.synchronizerSizePerWG,
+                            };
+
+                            // Check if config already exists - should not happen with proper operator==
+                            if(lib.origami_config_map_fc.find(origami_config) != lib.origami_config_map_fc.end())
+                            {
+                                std::cout << "[ERROR] Duplicate config_fc for solution index " << index << ":\n"
+                                          << "  MT=(" << origami_config.mt.m << "," << origami_config.mt.n << "," << origami_config.mt.k << "), "
+                                          << "MI=(" << origami_config.mi.m << "," << origami_config.mi.n << "," << origami_config.mi.k << "), "
+                                          << "occupancy=" << origami_config.occupancy << ", "
+                                          << "waveNum=" << origami_config.waveNum << ", "
+                                          << "WGM=" << origami_config.workgroup_mapping << ", "
+                                          << "GSU=" << origami_config.globalSplitU << ", "
+                                          << "WGMXCC=" << origami_config.workGroupMappingXCC << std::endl;
+                                iot::setError(
+                                    io,
+                                    concatenate("[ProblemPredictionLibrary_FC] Duplicate config detected for solution index: ",
+                                                index));
+                            }
+                            
+                            lib.origami_config_list_fc.emplace_back(origami_config);
+                            lib.origami_config_map_fc.insert(std::make_pair(origami_config, index));
                         }
                     }
                 }

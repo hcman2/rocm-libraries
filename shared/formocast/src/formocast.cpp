@@ -967,6 +967,57 @@ namespace Tensilelite
             }
             fifo.push(currentCycle + lrMemLatency);
         }
-    }
+
+        int16_t getAutoGSU(int16_t GSU, uint32_t numCUs, uint32_t numWGs, uint32_t MT0, uint32_t MT1, uint32_t MT2, uint32_t M, uint32_t N, uint32_t B, uint32_t K, uint32_t synchronizerSizePerWG, int globalAccumulation)
+        {
+            // if original GSU is not -1
+            if(GSU != -1)
+            {
+                return GSU;
+            }
+
+            // avoid zero division
+            if(numWGs == 0)
+            {
+                return 1;
+            }
+            uint32_t GSULimit1 = fmax(1, (uint32_t)std::floor(numCUs / numWGs));
+            uint32_t GSULimit2 = fmax(1, (uint32_t)std::floor((float)K / (float)MT2 / 3.0));
+            uint32_t gsuVal    = fmin(GSULimit2, fmax(1, GSULimit1));
+
+            // WorkgroupNumberCheck
+#define MAX_WORKGROUP_NUMBER 16777216
+            if(gsuVal > 1)
+                gsuVal = fmin(gsuVal,
+                            MAX_WORKGROUP_NUMBER / std::ceil(static_cast<float>(M) / MT0)
+                            / std::ceil(static_cast<float>(N) / MT1) / B);
+
+            // GlobalSplitUCheckMinK
+            if(gsuVal > 1)
+                gsuVal = fmin(gsuVal, std::ceil(static_cast<float>(K) / MT2));
+
+            // SynchronizerSizeCheck
+            if(gsuVal > 1 && globalAccumulation == 3) // MBSK
+            {
+                uint32_t synchronizerUsage
+                = synchronizerSizePerWG * numWGs * B;
+                gsuVal = synchronizerUsage > 409600 ? 1 : gsuVal;
+            }
+
+            // Avoid selecting a gsu value that would make launch grid over the limit
+            uint32_t tiles0        = ceilDivide(M, MT0);
+            uint32_t tiles1        = ceilDivide(N, MT1);
+            uint32_t tiles         = tiles0 * tiles1 * B;
+            uint32_t workGroupSize = numWGs;
+            uint32_t maxGsuValue = (std::numeric_limits<uint32_t>::max() / workGroupSize) / tiles;
+            gsuVal               = fmin(gsuVal, maxGsuValue);
+
+            // avoid gsu < 1
+            gsuVal = fmax(gsuVal, 1);
+
+            return gsuVal;
+        }
+
+    } // namespace Simulator
 } // namespace Tensilelite
 

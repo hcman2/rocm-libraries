@@ -51,6 +51,8 @@ namespace TensileLite
     {
         std::unordered_map<int, std::shared_ptr<MySolution>> solutionmap_fc;
         std::unordered_map<int, std::shared_ptr<MySolution>> solutionmap;
+        std::vector<origami::config_t>                       origami_config_list_fc;
+        std::unordered_map<origami::config_t, int>           origami_config_map_fc;
         std::vector<origami::config_t>                       origami_config_list;
         std::unordered_map<origami::config_t, int>           origami_config_map;
 
@@ -267,14 +269,27 @@ namespace TensileLite
                 .b_mx_block_size = 0, // MX Data types come from rocroller
             };
 
+            auto& used_solution   = (predictAlgo == 0) ? solutionmap : solutionmap_fc;
+            auto& used_config     = (predictAlgo == 0) ? origami_config_list : origami_config_list_fc;
+            auto& used_config_map = (predictAlgo == 0) ? origami_config_map : origami_config_map_fc;
+
+            if (predictAlgo == 0)
+                std::cout << "[Origami] Pool sizes - used_solution: " << used_solution.size()
+                        << ", used_config: " << used_config.size()
+                        << ", used_config_map: " << used_config_map.size() << std::endl;
+            else
+                std::cout << "[Formocast] Pool sizes - used_solution: " << used_solution.size()
+                        << ", used_config: " << used_config.size()
+                        << ", used_config_map: " << used_config_map.size() << std::endl;
+
             auto prediction_result = origami::rank_configs(
-                origami_problem, *(pAMDGPU->analyticalHardware), origami_config_list);
+                origami_problem, *(pAMDGPU->analyticalHardware), used_config);
 
             for(const auto& r : prediction_result)
             {
-                auto mapiter  = origami_config_map.find(r.config);
-                auto smapiter = solutionmap.find(mapiter->second);
-                if(mapiter != origami_config_map.end() && smapiter != solutionmap.end())
+                auto mapiter  = used_config_map.find(r.config);
+                auto smapiter = used_solution.find(mapiter->second);
+                if(mapiter != used_config_map.end() && smapiter != used_solution.end())
                 {
                     auto solution = smapiter->second;
                     if((*solution->hardwarePredicate)(hardware)
@@ -402,7 +417,7 @@ namespace TensileLite
                                                             int numSolutions) const override
         {
             // TODO- Temp
-            if(predictAlgo == 0)
+            if(true) //predictAlgo == 0)
                 return findTopSolutionsOrigami(problem, hardware, numSolutions);
             else
                 return findTopSolutionsFormoCast(problem, hardware, numSolutions);

@@ -199,6 +199,15 @@ enum class transpose_t {
 };
 
 /**
+ * @brief Indicates the complexity of predicting performance.
+ */
+enum class prediction_mode_t {
+  fast,
+  accurate,  // Uses all methods from formocast
+  dynamic    // Uses some methods from formocast
+};
+
+/**
  * @brief A compact 3-D dimension triple (M, N, K).
  *
  * Provides convenient accessors for common GEMM tiling parameters
@@ -249,6 +258,9 @@ struct runtime_options {
   /// Heuristics variance threshold (reads from ANALYTICAL_GEMM_HEURISTICS_VARIANCE env var)
   double heuristics_variance;
 
+  /// Prediction mode (reads from ANALYTICAL_GEMM_PREDICTION_MODE env var: 0=fast, 1=accurate, 2=dynamic)
+  prediction_mode_t prediction_mode;
+
   /**
    * @brief Default constructor that reads from environment variables.
    */
@@ -257,7 +269,7 @@ struct runtime_options {
   /**
    * @brief Constructor with explicit values (does not read from environment).
    */
-  runtime_options(bool debug, bool heuristics, double variance);
+  runtime_options(bool debug, bool heuristics, double variance, prediction_mode_t pred_mode = prediction_mode_t::fast);
 
   /**
    * @brief Get the global runtime options instance.
@@ -289,6 +301,12 @@ struct runtime_options {
   static double read_heuristics_variance_from_env();
 
   /**
+   * @brief Read prediction mode setting from environment variable.
+   * @return prediction_mode_t: 0=fast, 1=accurate, 2=dynamic (defaults to fast if not set or invalid)
+   */
+  static prediction_mode_t read_prediction_mode_from_env();
+
+  /**
    * @brief Update runtime options from environment variables.
    */
   void update_from_env();
@@ -308,6 +326,9 @@ struct config_t {
   /// Occupancy (number of waves resident per CU).
   int occupancy = -1;
 
+  /// Number of waves per workgroup.
+  size_t waveNum = 0;
+
   /// Reorder workgroup id for L2 reuse.
   int workgroup_mapping = 0;
 
@@ -321,19 +342,129 @@ struct config_t {
   std::size_t workspace_size            = 0;
   std::size_t workspace_size_per_elem_c = 0;
 
+  /// Compute latency hint (from MathClocksUnrolledLoop).
+  int compute_latency_hint = 0;
+
+  /// Global split U parameters.
+  int globalSplitU = 0;
+  bool globalSplitUCoalesced = false;
+  bool globalSplitUWorkGroupMappingRoundRobin = false;
+
+  /// XCC mapping parameters.
+  int workGroupMappingXCC = 0;
+  int workGroupMappingXCCGroup = 0;
+
+  /// Global read parameters.
+  int PrefetchGlobalRead = 2;
+  int WaveSeparateGlobalReadA = 0;
+  int WaveSeparateGlobalReadB = 0;
+  int UnrollLoopSwapGlobalReadOrder = 0;
+
+  /// Direct to VGPR parameters.
+  bool DirectToVgprA = false;
+  bool DirectToVgprB = false;
+
+  /// Load coalescing parameters.
+  int NumLoadsCoalescedA = 0;
+  int NumLoadsCoalescedB = 0;
+
+  /// Vector width parameters.
+  int VectorWidthA = 1;
+  int VectorWidthB = 1;
+
+  /// Global read/write vector width.
+  int grvwA = 1;
+  int grvwB = 1;
+  int gwvwC = 1;
+  int gwvwD = 1;
+
+  /// Local split U.
+  int LocalSplitU = 1;
+
+  /// Global accumulation method.
+  int globalAccumulation = 0;
+
+  /// Wave group configuration.
+  int waveGroup0 = 0;
+  int waveGroup1 = 0;
+
+  /// StreamK parameters.
+  int streamK = 0;
+  int streamKAtomic = 0;
+  size_t synchronizerSizePerWG = 0;
+
   /// Reduction strategy.
   reduction_t reduction_strategy = reduction_t::none;
 
   constexpr bool operator==(const config_t& o) const noexcept {
-    return mt == o.mt && mi == o.mi && cache_hints_a == o.cache_hints_a &&
-           cache_hints_b == o.cache_hints_b && workgroup_mapping == o.workgroup_mapping;
+    return mt == o.mt && mi == o.mi && 
+           occupancy == o.occupancy &&
+           waveNum == o.waveNum &&
+           workgroup_mapping == o.workgroup_mapping &&
+           cache_hints_a == o.cache_hints_a &&
+           cache_hints_b == o.cache_hints_b &&
+           globalSplitU == o.globalSplitU &&
+           globalSplitUCoalesced == o.globalSplitUCoalesced &&
+           globalSplitUWorkGroupMappingRoundRobin == o.globalSplitUWorkGroupMappingRoundRobin &&
+           workGroupMappingXCC == o.workGroupMappingXCC &&
+           workGroupMappingXCCGroup == o.workGroupMappingXCCGroup &&
+           PrefetchGlobalRead == o.PrefetchGlobalRead &&
+           WaveSeparateGlobalReadA == o.WaveSeparateGlobalReadA &&
+           WaveSeparateGlobalReadB == o.WaveSeparateGlobalReadB &&
+           UnrollLoopSwapGlobalReadOrder == o.UnrollLoopSwapGlobalReadOrder &&
+           DirectToVgprA == o.DirectToVgprA &&
+           DirectToVgprB == o.DirectToVgprB &&
+           NumLoadsCoalescedA == o.NumLoadsCoalescedA &&
+           NumLoadsCoalescedB == o.NumLoadsCoalescedB &&
+           VectorWidthA == o.VectorWidthA &&
+           VectorWidthB == o.VectorWidthB &&
+           grvwA == o.grvwA &&
+           grvwB == o.grvwB &&
+           gwvwC == o.gwvwC &&
+           gwvwD == o.gwvwD &&
+           LocalSplitU == o.LocalSplitU &&
+           globalAccumulation == o.globalAccumulation &&
+           waveGroup0 == o.waveGroup0 &&
+           waveGroup1 == o.waveGroup1 &&
+           streamK == o.streamK &&
+           streamKAtomic == o.streamKAtomic;
   }
 
   std::size_t hash() const {
-    return std::hash<size_t>()(mt.m) ^ std::hash<size_t>()(mt.n) ^ std::hash<size_t>()(mt.k) ^
-           std::hash<size_t>()(mi.m) ^ std::hash<size_t>()(mi.n) ^ std::hash<size_t>()(mi.k) ^
-           std::hash<int>()(cache_hints_a) ^ std::hash<int>()(cache_hints_b) ^
-           std::hash<int>()(workgroup_mapping);
+    std::size_t h = 0;
+    h ^= std::hash<size_t>()(mt.m) ^ (std::hash<size_t>()(mt.n) << 1) ^ (std::hash<size_t>()(mt.k) << 2);
+    h ^= std::hash<size_t>()(mi.m) ^ (std::hash<size_t>()(mi.n) << 1) ^ (std::hash<size_t>()(mi.k) << 2);
+    h ^= std::hash<int>()(occupancy) << 3;
+    h ^= std::hash<size_t>()(waveNum) << 4;
+    h ^= std::hash<int>()(workgroup_mapping) << 5;
+    h ^= std::hash<int>()(cache_hints_a) << 6;
+    h ^= std::hash<int>()(cache_hints_b) << 7;
+    h ^= std::hash<int>()(globalSplitU) << 8;
+    h ^= std::hash<bool>()(globalSplitUCoalesced) << 9;
+    h ^= std::hash<bool>()(globalSplitUWorkGroupMappingRoundRobin) << 10;
+    h ^= std::hash<int>()(workGroupMappingXCC) << 11;
+    h ^= std::hash<int>()(workGroupMappingXCCGroup) << 12;
+    h ^= std::hash<int>()(PrefetchGlobalRead) << 13;
+    h ^= std::hash<int>()(WaveSeparateGlobalReadA) << 14;
+    h ^= std::hash<int>()(WaveSeparateGlobalReadB) << 15;
+    h ^= std::hash<int>()(UnrollLoopSwapGlobalReadOrder) << 16;
+    h ^= std::hash<bool>()(DirectToVgprA) << 17;
+    h ^= std::hash<bool>()(DirectToVgprB) << 18;
+    h ^= std::hash<int>()(NumLoadsCoalescedA) << 19;
+    h ^= std::hash<int>()(NumLoadsCoalescedB) << 20;
+    h ^= std::hash<int>()(VectorWidthA) << 21;
+    h ^= std::hash<int>()(VectorWidthB) << 22;
+    h ^= std::hash<int>()(grvwA) << 23;
+    h ^= std::hash<int>()(grvwB) << 24;
+    h ^= std::hash<int>()(gwvwC) << 25;
+    h ^= std::hash<int>()(gwvwD) << 26;
+    h ^= std::hash<int>()(LocalSplitU) << 27;
+    h ^= std::hash<int>()(globalAccumulation) << 28;
+    h ^= std::hash<int>()(waveGroup0) << 29;
+    h ^= std::hash<int>()(waveGroup1) << 30;
+    h ^= std::hash<int>()(streamK) << 31;
+    h ^= std::hash<int>()(streamKAtomic);
+    return h;
   }
 
   void validate() const {
@@ -354,6 +485,7 @@ struct prediction_result_t {
   double latency;
   config_t config;
 };
+
 
 /**
  * @brief Struct to define the GEMM problem characteristics.
