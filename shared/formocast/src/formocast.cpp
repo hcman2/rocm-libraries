@@ -31,7 +31,6 @@
 #include <cstdlib>
 #include <random>
 #include <cassert>
-#include <iostream>
 #include <cstring>
 
 namespace Tensilelite

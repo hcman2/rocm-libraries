@@ -10,8 +10,10 @@
 #include <vector>
 #include <array>
 #include <queue>
+#include <iostream>
 
-#include <origami/utils.hpp>
+#include "origami/types.hpp"
+#include "origami/hardware.hpp"
 
 namespace Tensilelite
 {
