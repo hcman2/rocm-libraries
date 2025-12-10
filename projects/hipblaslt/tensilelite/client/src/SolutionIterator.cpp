@@ -30,7 +30,7 @@
 #include <Tensile/Debug.hpp>
 #include <Tensile/hip/HipHardware.hpp>
 
-#include <formocast.hpp>
+#include <formocast_predict.hpp>
 
 namespace TensileLite
 {

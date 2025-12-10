@@ -36,7 +36,7 @@
 #include <regex>
 #include <algorithm>
 
-#include "formocast.hpp"
+#include "formocast_predict.hpp"
 
 using MacroArguments = std::vector<std::tuple<std::string, std::string>>;
 using MacroEntity = std::tuple<std::shared_ptr<rocisa::Macro>, std::shared_ptr<MacroArguments>>;

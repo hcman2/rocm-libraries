@@ -31,7 +31,7 @@
 #include <vector>
 
 #include <Tensile/UtilsOrigami.hpp>
-#include <formocast.hpp>
+#include <formocast_predict.hpp>
 
 namespace TensileLite
 {
