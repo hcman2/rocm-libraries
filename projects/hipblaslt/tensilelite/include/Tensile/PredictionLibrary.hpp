@@ -91,6 +91,11 @@ namespace TensileLite
             problemInfo.bpeB       = problem.b().elementBytes();
             problemInfo.bpeD       = problem.d().elementBytes();
             problemInfo.bpeCompute = problem.computeTypeElementSize();
+            problemInfo.swizzleTensorA = problem.swizzleTensorA();
+            problemInfo.swizzleTensorB = problem.swizzleTensorB();
+            problemInfo.dataType = problem.f32XdlMathOp() == rocisa::DataType::XFloat32 ?
+              origami::data_type_t::XFloat32 :
+              datatypeToAnalyticalDatatype(problem.computeInputType());
 
             // GetSizeMapping
             auto                                sizeMapping = solution.getSizeMapping();
