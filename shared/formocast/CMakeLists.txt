@@ -52,6 +52,8 @@ target_include_directories(formocast-headers
 target_sources(formocast-headers
     INTERFACE
         $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include/formocast.hpp>
+        $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include/formocast_utils.hpp>
+        $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include/simulator.hpp>
 )
 
 target_link_libraries(formocast PUBLIC roc::formocast-headers)
@@ -59,6 +61,7 @@ target_link_libraries(formocast PUBLIC roc::formocast-headers)
 target_sources(formocast
     PRIVATE
         "${CMAKE_CURRENT_SOURCE_DIR}/src/formocast.cpp"
+        "${CMAKE_CURRENT_SOURCE_DIR}/src/simulator.cpp"
 )
 
 target_link_libraries(formocast PUBLIC hip::host)

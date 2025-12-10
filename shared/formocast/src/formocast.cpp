@@ -25,6 +25,8 @@
  *******************************************************************************/
 
 #include <formocast.hpp>
+#include <formocast_utils.hpp>
+#include <simulator.hpp>
 
 #include <algorithm>
 #include <cmath>
@@ -35,12 +37,7 @@
 
 namespace Tensilelite
 {
-    static uint32_t ceilDivide(uint32_t numerator, uint32_t denominator) {
-        if (denominator == 0) {
-            throw std::invalid_argument("Denominator cannot be zero");
-        }
-        return (numerator + denominator - 1) / denominator;
-    }
+    using Utils::ceilDivide;
 
     static double getPrefetchPerformance(int      pgr,
                                          int      grvwa,
@@ -143,224 +140,7 @@ namespace Tensilelite
         return (grCycles2 + others) / math_frequency;
     }
 
-    static double ceiling_math(double value, double significance = 1)
-    {
-        return std::ceil(value / significance) * significance;
-    }
 
-    static double calculateStoreL3Request(
-        double M, double N, double MT0, double MT1, double& non_edge_req, double& edge_req)
-    {
-        double result = 0.0;
-
-        double edge_size     = std::fmod(M, MT0);
-        double numWGsNonEdge = std::floor(M / MT0);
-        result = N * ((numWGsNonEdge * ceiling_math(MT0 / 32)) + ceiling_math(edge_size / 32));
-
-        double maxMT1              = std::min(N, MT1);
-        double nonEdgeRequestPerMT = maxMT1 * (ceiling_math(MT0 / 32));
-        double edgeRequestPerMT    = maxMT1 * ceiling_math(edge_size / 32);
-        if(numWGsNonEdge > 0.0)
-            non_edge_req = nonEdgeRequestPerMT;
-        else
-            non_edge_req = 0;
-        edge_req = edgeRequestPerMT;
-
-        return result;
-    }
-
-    static double calculateStoreL2Request(double  M,
-                                          double  N,
-                                          double  MT0,
-                                          double  MT1,
-                                          double  SVW,
-                                          double& non_edge_req,
-                                          double& edge_req)
-    {
-        double result = 0.0;
-
-        double edge_size     = std::fmod(M, MT0);
-        double numWGsNonEdge = std::floor(M / MT0);
-        double M_MOD_16SVW   = std::fmod(M, 16 * SVW);
-
-        double non_edge_0 = MT0 * 2 / 64 * ceiling_math(64 / (16 * 2 * SVW));
-        double edge_0     = (ceiling_math(std::floor(edge_size / (16 * SVW)) * (16 * SVW) * 2 / 64
-                                      * ceiling_math(64 / (16 * 2 * SVW)))
-                         * SVW);
-        double edge_1     = (std::floor(M_MOD_16SVW * 2 / 64 * ceiling_math(64 / (16 * 2 * SVW)))
-                         * std::min(M_MOD_16SVW, SVW));
-        double edge_2     = (std::min(std::fmod(M, std::min(16 * SVW, 32.0)), SVW));
-
-        result = N * ((numWGsNonEdge * non_edge_0) + (edge_0) + (edge_1) + (edge_2));
-
-        double maxMT1              = std::min(N, MT1);
-        double nonEdgeRequestPerMT = maxMT1 * (non_edge_0);
-        double edgeRequestPerMT    = maxMT1 * (edge_0 + edge_1 + edge_2);
-        if(numWGsNonEdge > 0.0)
-            non_edge_req = nonEdgeRequestPerMT;
-        else
-            non_edge_req = 0;
-        edge_req = edgeRequestPerMT;
-
-        return result;
-    }
-
-    static double calculateStoreL1Request(double  M,
-                                          double  N,
-                                          double  MT0,
-                                          double  MT1,
-                                          double  SVW,
-                                          double& non_edge_req,
-                                          double& edge_req)
-    {
-        double result = 0.0;
-
-        double edge_size     = std::fmod(M, MT0);
-        double numWGsNonEdge = std::floor(M / MT0);
-
-        double non_edge_0
-            = MT0 / 16 * (-1) * (SVW == 1 ? 1 : 0) * (std::fmod(M, 4) == 2 ? 1 : 0);
-        double non_edge_1
-            = MT0 / 16 * (-4) * (SVW == 1 ? 1 : 0) * (std::fmod(M, 16) == 8 ? 1 : 0);
-        double non_edge_2
-            = MT0 / 16 * (-3) * (SVW == 1 ? 1 : 0) * (std::fmod(M, 4) == 0 ? 1 : 0);
-        double non_edge_3
-            = MT0 / 16 * (-12) * (SVW == 1 ? 1 : 0) * (std::fmod(M, 16) == 0 ? 1 : 0);
-        double edge_0 = (std::floor(edge_size / (16 * SVW)) * 3 * (SVW == 1 ? 1 : 0)
-                         * (std::fmod(M, 2) == 1 ? 1 : 0));
-        double edge_1 = (std::floor(edge_size / (16 * SVW)) * 2 * (SVW == 1 ? 1 : 0)
-                         * (std::fmod(M, 4) == 2 ? 1 : 0));
-        double edge_2 = (std::floor(edge_size / (16 * SVW)) * (-4) * (SVW == 1 ? 1 : 0)
-                         * (std::fmod(M, 8) == 0 ? 1 : 0));
-        double edge_3 = (std::floor(edge_size / (16 * SVW)) * 4 * (SVW == 1 ? 1 : 0)
-                         * (std::fmod(M, 16) == 0 ? 1 : 0));
-        double edge_4 = (std::floor(edge_size / (16 * SVW)) * (-12 * SVW * SVW)
-                         * (SVW == 1 ? 1 : 0) * (std::fmod(M, 16) == 0 ? 1 : 0));
-
-        result += N / 64
-                  * ((numWGsNonEdge * non_edge_0) + (numWGsNonEdge * non_edge_1)
-                     + (numWGsNonEdge * non_edge_2) + (numWGsNonEdge * non_edge_3) + (edge_0)
-                     + (edge_1) + (edge_2) + (edge_3) + (edge_4));
-
-        double non_edge_4 = MT0 / 32 * (SVW == 2 || SVW == 8 ? 139 : (SVW == 4 ? 82 : 0))
-                            * (SVW == 1 ? 0 : 1) * (std::fmod(M, 2) == 1 ? 1 : 0);
-        double non_edge_5 = MT0 / 16 * (SVW == 2 || SVW == 8 ? 3 : (SVW == 4 ? 2 : 0))
-                            * (SVW == 1 ? 0 : 1) * (std::fmod(M, 4) == 2 ? 1 : 0);
-        double non_edge_6 = MT0 / 16 * (SVW == 2 || SVW == 8 ? 2 : (SVW == 4 ? 0 : 0))
-                            * (SVW == 1 ? 0 : 1) * (std::fmod(M, 8) == 4 ? 1 : 0);
-        double non_edge_7 = MT0 / 16 * (SVW == 2 || SVW == 8 ? 4 : (SVW == 4 ? 0 : 0))
-                            * (SVW == 1 ? 0 : 1) * (std::fmod(M, 16) == 8 ? 1 : 0);
-        double non_edge_8
-            = MT0 / 16 * (-4) * (SVW == 1 ? 0 : 1) * (std::fmod(M, 8) == 0 ? 1 : 0);
-        double non_edge_9 = MT0 / 16 * (SVW == 4 || SVW == 8 ? 0 : (SVW == 2 ? -8 : 0))
-                            * (SVW == 1 ? 0 : 1) * (std::fmod(M, 16 * SVW) == 0 ? 1 : 0);
-        double non_edge_10 = MT0 / 16 * (SVW == 4 || SVW == 8 ? -8 : (SVW == 2 ? 0 : 0))
-                             * (SVW == 1 ? 0 : 1) * (std::fmod(M, 4 * SVW) == 0 ? 1 : 0);
-        double edge_5 = (std::floor(edge_size / (16 * SVW)) * (-16 * SVW * SVW)
-                         * (SVW == 1 ? 0 : 1) * (std::fmod(M, 16 * SVW) == 8 * SVW ? 1 : 0));
-        double edge_6 = (std::floor(edge_size / (16 * SVW)) * (-48 * SVW * SVW)
-                         * (SVW == 1 ? 0 : 1) * (std::fmod(M, 16 * SVW) == 0 ? 1 : 0));
-
-        result += N / 64
-                  * ((numWGsNonEdge * non_edge_4) + (numWGsNonEdge * non_edge_5)
-                     + (numWGsNonEdge * non_edge_6) + (numWGsNonEdge * non_edge_7)
-                     + (numWGsNonEdge * non_edge_8) + (numWGsNonEdge * non_edge_9)
-                     + (numWGsNonEdge * non_edge_10) + (edge_5) + (edge_6));
-
-        double M_MOD_16SVW = std::fmod(M, 16 * SVW);
-        double M_MOD_8VW   = std::fmod(M, 8 * SVW);
-        double M_MOD_4SVW  = std::fmod(M, 4 * SVW);
-        double M_MOD_4     = std::fmod(M, 4);
-
-        double non_edge_11 = MT0 / 16 * (16 - (SVW == 1 ? 1 : 4));
-        double edge_7
-            = (std::floor(edge_size / (16 * SVW)) * (12 * SVW * SVW) * (SVW == 1 ? 1 : 4));
-        double edge_8 = ((M_MOD_16SVW >= 4 * SVW
-                              ? (M_MOD_16SVW - 4 * SVW) * SVW
-                                    * (SVW == 1 && M_MOD_4 == 0 ? 1 : 4) * (M_MOD_8VW == 0 ? 0 : 1)
-                              : 0));
-
-        result += N / 64 * ((numWGsNonEdge * non_edge_11) + (edge_7) + (edge_8));
-
-        double non_edge_12 = ((MT0 * 2) / 64) * (SVW == 1 || SVW == 4 ? 2 : 1);
-        double edge_9      = (std::floor(edge_size / (16 * SVW)) * (SVW == 1 ? 1 : 4 * SVW));
-        double edge_10     = (M_MOD_16SVW < 4 * SVW ? M_MOD_4SVW : 0);
-        double edge_11 = (M_MOD_16SVW >= 4 * SVW ? (SVW == 1 && M_MOD_4 == 0 ? 1 : 4 * SVW) : 0);
-
-        result += N * ((numWGsNonEdge * non_edge_12) + (edge_9) + (edge_10) + (edge_11));
-
-        double maxMT1              = std::min(N, MT1);
-        double nonEdgeRequestPerMT = maxMT1 / 64
-                                         * (non_edge_0 + non_edge_1 + non_edge_2 + non_edge_3
-                                            + non_edge_4 + non_edge_5 + non_edge_6 + non_edge_7
-                                            + non_edge_8 + non_edge_9 + non_edge_10 + non_edge_11)
-                                     + (maxMT1 * non_edge_12);
-        double edgeRequestPerMT
-            = maxMT1 / 64
-                  * (edge_0 + edge_1 + edge_2 + edge_3 + edge_4 + edge_5 + edge_6 + edge_7 + edge_8)
-              + maxMT1 * (edge_9 + edge_10 + edge_11);
-
-        if(numWGsNonEdge > 0.0)
-            non_edge_req = nonEdgeRequestPerMT;
-        else
-            non_edge_req = 0;
-        edge_req = edgeRequestPerMT;
-
-        return result;
-    }
-
-    static double getLoadRequest(double   MTX,
-                                 double   DU,
-                                 double   L1CacheLineSize,
-                                 uint32_t grvw,
-                                 uint32_t bpe,
-                                 int      dtv,
-                                 bool     isSwizzledA,
-                                 uint32_t VW,
-                                 double&  tcc_ea0_coalscedA)
-    {
-        double L1_req     = 0.0;
-        tcc_ea0_coalscedA = 1;
-        if(isSwizzledA)
-        {
-            L1_req = MTX * DU * bpe / 64;
-            L1_req *= ceilDivide(VW, uint32_t(2));
-        }
-        else
-        {
-            L1_req = MTX * DU * bpe / 64;
-            tcc_ea0_coalscedA = ceilDivide((uint32_t)L1CacheLineSize, (uint32_t)DU * bpe);
-            if(grvw * bpe == 8 || grvw * bpe <= 2)
-                L1_req *= 2;
-            if(dtv)
-                L1_req *= 4;
-        }
-        return L1_req;
-    }
-
-    static double getLoadRequestAisNOrBisT(double   MTX,
-                                 double   DU,
-                                 double   L1CacheLineSize,
-                                 double   L1BusWidthPerCU,
-                                 uint32_t grvw,
-                                 uint32_t bpe,
-                                 int      dtv,
-                                 int      NumLoadsCoalesced,
-                                 uint32_t numWaveX,
-                                 double&  tcc_ea0_coalsced)
-    {
-        double L1_req     = 0.0;
-        tcc_ea0_coalsced = 1.0;
-        L1_req = std::ceil(MTX / NumLoadsCoalesced * bpe / L1BusWidthPerCU) * NumLoadsCoalesced * DU;
-        if(L1CacheLineSize > MTX / NumLoadsCoalesced * bpe)
-            tcc_ea0_coalsced = 2;
-        if((grvw * bpe == 8 || grvw * bpe <= 2) && (MTX / NumLoadsCoalesced * bpe >= L1BusWidthPerCU))
-            L1_req *= 2;
-        if(dtv)
-            L1_req *= numWaveX;
-
-        return L1_req;
-    }
 
     double Formocast::getLoopOverall(const MemoryAccessCosts& mem, double math, uint32_t loopCnt, double pgr) const
     {
@@ -423,10 +203,10 @@ namespace Tensilelite
         double D_L3_req = 0.0;
         double D_L1_edge_req, D_L2_edge_req, D_L3_edge_req;
         double total_store_req1
-            = calculateStoreL1Request(M, N, MT0, MT1, GWVWD, D_L1_req, D_L1_edge_req);
+            = Simulator::calculateStoreL1Request(M, N, MT0, MT1, GWVWD, D_L1_req, D_L1_edge_req);
         double total_store_req2
-            = calculateStoreL2Request(M, N, MT0, MT1, GWVWD, D_L2_req, D_L2_edge_req);
-        double total_store_req3 = calculateStoreL3Request(M, N, MT0, MT1, D_L3_req, D_L3_edge_req);
+            = Simulator::calculateStoreL2Request(M, N, MT0, MT1, GWVWD, D_L2_req, D_L2_edge_req);
+        double total_store_req3 = Simulator::calculateStoreL3Request(M, N, MT0, MT1, D_L3_req, D_L3_edge_req);
 
         // std::cout<<"store L1 non-edge= "<<D_L1_req<<std::endl;
         // std::cout<<"store L1 edge    = "<<D_L1_edge_req<<std::endl;
@@ -477,101 +257,16 @@ namespace Tensilelite
                                           double lda, double ldb, int NLCA, int NLCB,
                                           uint32_t threadnum, uint32_t NumWave0, uint32_t NumWave1) const
     {
-        L1CacheHitRate hr;
-        double A_L1_hit = 1.0;
-        double B_L1_hit = 1.0;
-
-        // Calculate L1 hit rate, assume bpeA==bpeB, TN only
-        bool isL1BypassA = (NTA >= 2);
-        bool isL1BypassB = (NTB >= 2);
-
-        if(transA)
-        {
-            //A is T
-            if(GRVWA * bpeA == 8 || GRVWA * bpeA <= 2)
-                A_L1_hit *= 2;
-            if(DTVA)
-                A_L1_hit *= 4;
-            A_L1_hit = isL1BypassA ? 0: 1 - 1 / A_L1_hit;
-            A_L1_hit = isSwizzleA ? 1 - 1 / ceilDivide(VWA, uint32_t(2)) : A_L1_hit;
-        }
-        else
-        {
-            //A is N
-            uint32_t L1Limit = hw.L1CacheCapacity;
-            if((uint32_t)lda % 512 == 0)
-                L1Limit /= 4;
-            else if((uint32_t)lda % 256 == 0)
-                L1Limit /= 2;
-
-            if(MT0 / NLCA * bpeA < hw.L1CacheLineSize)
-            {
-                bool isL1CacheFull = (hw.L1CacheLineSize * threadnum / (MT0 / NLCA / GRVWA)) > L1Limit;
-                if(isL1CacheFull)
-                {
-                    A_L1_hit = 1;
-                }
-                else
-                {
-                    A_L1_hit = std::ceil(NLCA / (hw.L1CacheLineSize / (MT0 / NLCA * bpeA))) / NLCA;
-                }
-            }
-            else
-            {
-                A_L1_hit = 0.5; //Why not 1.0?
-            }
-            if((GRVWA * bpeA == 8 || GRVWA * bpeA <= 2) && (MT0 / NLCA * bpeA) >= hw.L1BusWidthPerCU)
-                A_L1_hit /= 2;
-            if(DTVA)
-                A_L1_hit /= NumWave0;
-            A_L1_hit = isL1BypassA ? 0: 1 - A_L1_hit;
-        }
-
-        if(transB)
-        {
-            //B is T
-            uint32_t L1Limit = hw.L1CacheCapacity;
-            if((uint32_t)ldb % 512 == 0)
-                L1Limit /= 4;
-            else if((uint32_t)ldb % 256 == 0)
-                L1Limit /= 2;
-
-            if(MT1 / NLCB * bpeB < hw.L1CacheLineSize)
-            {
-                bool isL1CacheFull = (hw.L1CacheLineSize * threadnum / (MT1 / NLCB / GRVWB)) > L1Limit;
-                if(isL1CacheFull)
-                {
-                    B_L1_hit = 1;
-                }
-                else
-                {
-                    B_L1_hit = std::ceil(NLCB / (hw.L1CacheLineSize / (MT1 / NLCB * bpeB))) / NLCB;
-                }
-            }
-            else
-            {
-                B_L1_hit = 0.5; //Why not 1.0?
-            }
-            if((GRVWB * bpeB == 8 || GRVWB * bpeB <= 2) && (MT1 / NLCB * bpeB) >= hw.L1BusWidthPerCU)
-                B_L1_hit /= 2;
-            if(DTVB)
-                B_L1_hit /= NumWave1;
-            B_L1_hit = isL1BypassB ? 0: 1 - B_L1_hit;
-        }
-        else
-        {
-            //B is N
-            if(GRVWB * bpeB == 8 || GRVWB * bpeB <= 2)
-                B_L1_hit *= 2;
-            if(DTVB)
-                B_L1_hit *= 4;
-            B_L1_hit = isL1BypassB ? 0: 1 - 1 / B_L1_hit;
-            B_L1_hit = isSwizzleB ? 1 - 1 / ceilDivide(VWB, uint32_t(2)) : B_L1_hit;
-        }
-
-        hr.tile0HitRate = A_L1_hit;
-        hr.tile1HitRate = B_L1_hit;
-        return hr;
+        auto hr = Simulator::computeL1CacheHitRate(
+            hw.L1CacheCapacity, hw.L1CacheLineSize, hw.L1BusWidthPerCU,
+            MT0, MT1, bpeA, bpeB, NTA, NTB, GRVWA, GRVWB, DTVA, DTVB,
+            isSwizzleA, isSwizzleB, VWA, VWB, transA, transB, lda, ldb,
+            NLCA, NLCB, threadnum, NumWave0, NumWave1);
+        
+        L1CacheHitRate result;
+        result.tile0HitRate = hr.tile0HitRate;
+        result.tile1HitRate = hr.tile1HitRate;
+        return result;
     }
 
     Formocast::L3CacheHitRate
@@ -579,38 +274,15 @@ namespace Tensilelite
                                           uint32_t bpeA, uint32_t bpeB, int NTA, int NTB,
                                           int N_WGs_total, int M_WGs_total, int N_WGs_per_tile, int M_WGs_per_tile) const
     {
-        L3CacheHitRate hr;
-        double A_L3_hit = 0.0;
-        double B_L3_hit = 0.0;
-
-        bool isL3BypassA = (NTA > 3) || (NTA == 1);
-        if(!isL3BypassA)
-        {
-            if((M * K * bpeA) + (N * K * bpeB) < hw.L3CacheCapacity)
-            {
-                A_L3_hit = 1 - double(1.0 / N_WGs_total);
-            }
-            else
-            {
-                A_L3_hit = 1 - double(M_WGs_per_tile / hw.NumCUs);
-            }
-        }
-        bool isL3BypassB = (NTB > 3) || (NTB == 1);
-        if(!isL3BypassB)
-        {
-            if((M * K * bpeA) + (N * K * bpeB) < hw.L3CacheCapacity)
-            {
-                B_L3_hit = 1 - double(1.0 / M_WGs_total);
-            }
-            else
-            {
-                B_L3_hit = 1 - double(N_WGs_per_tile / hw.NumCUs);
-            }
-        }
-        hr.tile0HitRate = A_L3_hit;
-        hr.tile1HitRate = B_L3_hit;
-        hr.totalHitRate = A_L3_hit * M/(M+N) + B_L3_hit * N/(M+N);
-        return hr;
+        auto hr = Simulator::computeL3CacheHitRate(
+            M, N, K, hw.L3CacheCapacity, hw.NumCUs, bpeA, bpeB, NTA, NTB,
+            N_WGs_total, M_WGs_total, N_WGs_per_tile, M_WGs_per_tile);
+        
+        L3CacheHitRate result;
+        result.totalHitRate = hr.totalHitRate;
+        result.tile0HitRate = hr.tile0HitRate;
+        result.tile1HitRate = hr.tile1HitRate;
+        return result;
     }
 
     double Formocast::calculateGSUOverhead(double M, double N, double K,
@@ -621,86 +293,27 @@ namespace Tensilelite
                                                         double MT0, double MT1, uint32_t numWGs, double vgprCheck,
                                                         double storeGSU) const
     {
-        double   gsu_overall = 0.0;
+        double gsu_overall = 0.0;
+        
         if(gsuMethod == 2 && GlobalSplitU > 1) //MB
         {
-            // double GSU_load = (GlobalSplitU * M * N * 4 * NumBatches) / hbmBandWidth / NumCUs;
-            // double GSU_store = (M * N * bpeD * NumBatches) / hbmBandWidth / NumCUs;
-            // gsu_overall = initialCost + GSU_load + GSU_store;
-            double read_l1_req, write_l1_req;
-
-            auto   bpeIn    = problem.bpeCompute;
-            auto   bpeOut   = problem.bpeD;
-            // Read write requests for VW=4 dwordx2 Half output
-            if (bpeIn == 4 && bpeOut == 2 && ((int)M % 4) == 0)
-            {
-                read_l1_req = M * N * (bpeIn * 4 + (GlobalSplitU - 2) * 4 + 2) / 64;
-                write_l1_req = M * N * bpeOut / 64 * 8;
-            }
-            else
-            {
-                // Just to make it work
-                read_l1_req = M * N * (bpeIn * 4 + (GlobalSplitU - 2) * 4 + 2) / 64;
-                write_l1_req = M * N * bpeOut / 64 * 8;
-                std::cerr << "Currently not support yet" << std::endl;
-            }
-
-            double read_l2_req = M * N * bpeIn * GlobalSplitU / hw_consts.L1CacheLineSize;
-            double read_l3_req = read_l2_req;
-            double write_l2_req = M * N * bpeOut / 64;
-            double write_l3_req = write_l2_req;
-
-            double WGs = M * N / (1024);
-            WGs = std::min(double(hw_consts.NumCUs), WGs);
-
-            //FIXME: should get this from hw_consts
-            double cu_freq  = hw_consts.boost_frequency;
-            double hbm_freq = hw_consts.mem_frequency;
-
-            // Not sure if this works using the same formula as gemm
-            double L2WriteBandWidthPerCU = hw_consts.L2WriteArbEff * 128 * 16 / WGs; //58% eff
-            double L2BandWidthPerCU      = hw_consts.L2ReadArbEff * 128 * 16 / WGs; //90% eff
-            double L3BandWidthPerCU      = hw_consts.L3BandWidth / WGs;
-            double HBMBandWidthPerCU     = hw_consts.hbmBandWidth / WGs;
-
-            double GSU_L1_clk  = read_l1_req/WGs * 64 / hw_consts.L1BusWidthPerCU;
-            double GSU_L2_clk  = read_l2_req/WGs / 2 * 128 / std::min(L2BandWidthPerCU, hw_consts.L2BusWidthPerCU);
-            double GSU_L3_clk  = read_l3_req/WGs / 2 * 128 / L3BandWidthPerCU;
-            double GSU_hbm_clk = M * N * bpeIn * GlobalSplitU / hw_consts.hbmBandWidth; //read_req / 2 * 128 / HBMBandWidthPerCU;
-
-            double GSU_L1_overall  = GSU_L1_clk / cu_freq;
-            double GSU_L2_overall  = GSU_L2_clk / cu_freq;
-            double GSU_L3_overall  = GSU_L3_clk / hbm_freq;
-            double GSU_hbm_overall = GSU_hbm_clk / hbm_freq;
-            double GSU_mem_overall = std::max(GSU_hbm_overall, std::max(GSU_L3_overall, std::max(GSU_L1_overall, GSU_L2_overall)));
-
-            double D_L1_clk = write_l1_req/WGs * 64 / hw_consts.L1WriteBusWidthPerCU;
-            double D_L2_clk = write_l2_req/WGs * 64 / std::min(hw_consts.L2WriteBusWidthPerCU, L2WriteBandWidthPerCU);
-            double D_L3_clk = write_l3_req/WGs * 64 / L3BandWidthPerCU;
-            // TODO: D_hbm_clk use D_L3_req.
-            double D_hbm_clk     = 0 * 64 / HBMBandWidthPerCU;
-            double store    = std::max(D_L1_clk/cu_freq, std::max(D_L2_clk/cu_freq, std::max(D_L3_clk/hbm_freq, D_hbm_clk/hbm_freq)));
-
-            gsu_overall = GSU_mem_overall + store;
+            gsu_overall = Simulator::getMBOverhead(
+                M, N, GlobalSplitU, NumBatches,
+                problem.bpeCompute, problem.bpeD, hw_consts.hbmBandWidth,
+                hw_consts.L1CacheLineSize, hw_consts.NumCUs, hw_consts.boost_frequency,
+                hw_consts.mem_frequency, hw_consts.L2WriteArbEff, hw_consts.L2ReadArbEff,
+                hw_consts.L3BandWidth, hw_consts.L1BusWidthPerCU, hw_consts.L2BusWidthPerCU,
+                hw_consts.L1WriteBusWidthPerCU, hw_consts.L2WriteBusWidthPerCU
+            );
         }
         else if(gsuMethod == 3 && GlobalSplitU > 1) //MBSK
         {
-            // FIXME: Modify with the MBSK changes.
-            // FIXME: add sync overhead.
-            double cu_freq  = hw_consts.boost_frequency;
-            auto   bpeIn    = problem.bpeCompute;
-            double WGs = std::min(double(hw_consts.NumCUs), double(numWGs)) / GlobalSplitU;
-            double L2BandWidthPerCU      = hw_consts.L2ReadArbEff * 128 * 16 / WGs; //90% eff
-            double atomic_overhead = GlobalSplitU * 0.1;
-            double GSU_L1_req      = ((GlobalSplitU - 1) * MT0 * MT1 * bpeIn) / 64;
-            if (GlobalSplitU > 2)
-            {
-                GSU_L1_req += (MT0 * MT1 * bpeIn) / 64;
-            }
-            double GSU_L1_clk      = GSU_L1_req * 64 / hw_consts.L1BusWidthPerCU;
-            double GSU_L2_clk = GSU_L1_req / 2 * 128 / std::min(L2BandWidthPerCU, hw_consts.L2BusWidthPerCU);
-
-            gsu_overall       = atomic_overhead + (std::max(GSU_L1_clk/cu_freq, GSU_L2_clk/cu_freq)) + storeGSU;
+            gsu_overall = Simulator::getMBSKOverhead(
+                GlobalSplitU, MT0, MT1, problem.bpeCompute,
+                hw_consts.NumCUs, numWGs, hw_consts.boost_frequency,
+                hw_consts.L2ReadArbEff, hw_consts.L1BusWidthPerCU, hw_consts.L2BusWidthPerCU,
+                storeGSU
+            );
         }
 
         return gsu_overall;
@@ -711,49 +324,8 @@ namespace Tensilelite
                                                      ProblemInfo problem,
                                                      const HardwareConstants& hw_consts) const
     {
-        if (lsu == 1) return 0.0;
-        double lsu_overall = 0.0;
-        auto   bpeIn       = problem.bpeCompute;
-
-        // local write
-        double lw_cycle    = 8;
-        double local_write = MT0 * MT1 / numThreads; // total elements to store per thread.
-        double local_write_cycle;
-        switch(svw * bpeIn)
-        {
-        case 32:
-            lw_cycle  = 20;
-            local_write_cycle = local_write * lw_cycle * 2;
-            break;
-        case 16:
-            lw_cycle  = 20;
-            local_write_cycle = local_write * lw_cycle;
-            break;
-        case 8:
-            lw_cycle  = 12;
-            local_write_cycle = local_write * lw_cycle;
-            break;
-        case 4:
-            lw_cycle  = 8;
-            local_write_cycle = local_write * lw_cycle;
-            break;
-        default:
-            lw_cycle  = 8;
-            local_write_cycle = local_write * lw_cycle;
-            break;
-        }
-        local_write_cycle *= 2;
-
-        // local read
-        double local_read_cycle = MT0 * MT1 / numThreads / svw * 4;
-        local_read_cycle *= 2;
-
-        // reduction
-        double reduction_cycle = MT0 * MT1 / numThreads * (lsu - 1) * 4;
-
-        lsu_overall = (local_write_cycle + local_read_cycle + reduction_cycle) / hw_consts.math_frequency;
-
-        return lsu_overall;
+        return Simulator::getLSUOverhead(MT0, MT1, lsu, svw, numThreads, 
+                                         problem.bpeCompute, hw_consts.math_frequency);
     }
 
     Formocast::MemoryAccessCosts
@@ -773,28 +345,25 @@ namespace Tensilelite
         MemoryAccessCosts mem;
         double tcc_ea0_coalscedA;
         double tcc_ea0_coalscedB;
-        double A_L1_req;
-        double B_L1_req;
-        if(trA)
-        {
-            A_L1_req
-                = getLoadRequest(MT0, depthU, hw.L1CacheLineSize, GRVWA, bpeA, DTVA, isSwizzleA, VWA, tcc_ea0_coalscedA);
-        }
-        else
-        {
-            A_L1_req
-                = getLoadRequestAisNOrBisT(MT0, depthU, hw.L1CacheLineSize, hw.L1BusWidthPerCU, GRVWA, bpeA, DTVA, NLCA, numWave1, tcc_ea0_coalscedA);
-        }
-        if(trB)
-        {
-            B_L1_req
-                = getLoadRequestAisNOrBisT(MT1, depthU, hw.L1CacheLineSize, hw.L1BusWidthPerCU, GRVWB, bpeB, DTVB, NLCB, numWave0, tcc_ea0_coalscedB);
-        }
-        else
-        {
-            B_L1_req
-                = getLoadRequest(MT1, depthU, hw.L1CacheLineSize, GRVWB, bpeB, DTVB, isSwizzleB, VWB, tcc_ea0_coalscedB);
-        }
+        double A_L1_req = Simulator::getLoadRequest(MT0, depthU, hw.L1CacheLineSize, 
+                                         GRVWA, bpeA, DTVA, 
+                                         trA,           // isTransposed
+                                         isSwizzleA,    // isSwizzled (for transposed case)
+                                         VWA,           // VW (for transposed case)
+                                         hw.L1BusWidthPerCU,  // L1BusWidthPerCU (for non-transposed case)
+                                         NLCA,          // NumLoadsCoalesced (for non-transposed case)
+                                         numWave1,      // numWaveX (for non-transposed case)
+                                         tcc_ea0_coalscedA);
+
+        double B_L1_req = Simulator::getLoadRequest(MT1, depthU, hw.L1CacheLineSize, 
+                                         GRVWB, bpeB, DTVB, 
+                                         !trB,          // isTransposed (B is transposed when trB=false)
+                                         isSwizzleB,    // isSwizzled (for transposed case)
+                                         VWB,           // VW (for transposed case)
+                                         hw.L1BusWidthPerCU,  // L1BusWidthPerCU (for non-transposed case)
+                                         NLCB,          // NumLoadsCoalesced (for non-transposed case)
+                                         numWave0,      // numWaveX (for non-transposed case)
+                                         tcc_ea0_coalscedB);
 
         double A_L2_req = A_L1_req * (1 - hr.A_L1_hit) / 2 * tcc_ea0_coalscedA;
         double A_L3_req = A_L2_req * (1 - hr.A_L2_hit) / tcc_ea0_coalscedA;
@@ -1341,340 +910,18 @@ namespace Tensilelite
                                                    int32_t  NTB,
                                                    bool     isGSUWGMRR) const
     {
-        Formocast::L2CacheHitRate hitRate;
-
         uint32_t MT0 = sizeMapping.macroTile[0];
         uint32_t MT1 = sizeMapping.macroTile[1];
+        uint32_t depthU = sizeMapping.depthU;
 
-        uint32_t wg0 = ceilDivide(M, MT0);
-        uint32_t wg1 = ceilDivide(N, MT1);
-
-        uint32_t MT0_Edge = MT0 - ((wg0 * MT0) - M);
-        uint32_t MT1_Edge = MT1 - ((wg1 * MT1) - N);
-        if(MT0_Edge == 0)
-            MT0_Edge = MT0;
-        if(MT1_Edge == 0)
-            MT1_Edge = MT1;
-
-        //std::cout<<"wgm="<<wgm<<",wg0="<<wg0<<", wg1 = "<<wg1<<", MT0 = "<<MT0<<", MT1 = "<<MT1<<", MT0_edge = "<<MT0_Edge<<", MT1_edge = "<<MT1_Edge<<std::endl;
-
-        // other info
-        uint32_t L2CacheLineSize = 128; //Bytes
-        uint32_t L2Capacity      = hw.L2CacheCapacity; //MBs
-        uint32_t depthU          = sizeMapping.depthU;
-        uint32_t gsuMulBatch     = gsu * batches;
-
-        std::vector<uint32_t> arrA(gsuMulBatch * wg0, 0);
-        std::vector<uint32_t> arrB(gsuMulBatch * wg1, 0);
-        std::vector<uint32_t> arrA_2(gsuMulBatch * wg0, 0);
-        std::vector<uint32_t> arrB_2(gsuMulBatch * wg1, 0);
-
-        uint32_t WGMXCC  = hw.NumXCDs;
-        uint32_t WGMXCCG = hw.NumCUs;
-        assert((WGMXCCG % WGMXCC) == 0);
-
-        uint32_t xccIdx      = 0;
-        uint32_t score       = 0;
-        uint32_t totalWGNum  = gsuMulBatch * wg0 * wg1;
-        uint32_t totalWG0WG1 = wg0 * wg1;
-        uint32_t xccgdiv     = totalWGNum / WGMXCCG;
-        uint32_t xccgres     = totalWGNum % WGMXCCG;
-
-        double  hitRateA     = 0;
-        double  hitRateB     = 0;
-        double  totalHitRate = 0;
-        int32_t finalwgm     = 0;
-
-        double aRatio = float(MT0) / float(MT0 + MT1);
-        double bRatio = float(MT1) / float(MT0 + MT1);
-
-        uint64_t aHitElements  = 0;
-        uint64_t aMissElements = 0;
-        uint64_t bHitElements  = 0;
-        uint64_t bMissElements = 0;
-
-        bool isL2BypassA = (NTA & 0x6) > 0;
-        bool isL2BypassB = (NTB & 0x6) > 0;
-
-        //std::cout<<"GSU="<<gsu<<", batch="<<batches<<", isL2BypassA = "<<isL2BypassA<<", isL2BypassB = "<<isL2BypassB<<std::endl;
-
-        uint32_t hitA  = 0;
-        uint32_t hitB  = 0;
-        uint32_t missA = 0;
-        uint32_t missB = 0;
-
-        for(uint32_t wg = 0; wg < std::min(totalWGNum, 10 * (uint32_t)hw.NumCUs); wg++)
-        {
-            //clean cache
-            if((wg % WGMXCCG) == 0)
-            {
-                //loop every XCDs
-                for(uint32_t xcd = 0; xcd < hw.NumXCDs && wg > 0; xcd++)
-                {
-                    uint32_t MT0_A = 0;
-                    for(uint32_t g = 0; g < gsuMulBatch; g++)
-                    {
-                        for(uint32_t i = 0; i < wg0; i++)
-                        {
-                            if(arrA[g * wg0 + i] & (1 << xcd))
-                            {
-                                if(i == (wg0 - 1)) //Edge
-                                    MT0_A += (MT0_Edge * (K / gsu)) * bpeA;
-                                else
-                                    MT0_A += (MT0 * (K / gsu)) * bpeA;
-                            }
-                        }
-                    }
-
-                    uint32_t MT1_B = 0;
-                    for(uint32_t g = 0; g < gsuMulBatch; g++)
-                    {
-                        for(uint32_t i = 0; i < wg1; i++)
-                        {
-                            if(arrB[g * wg1 + i] & (1 << xcd))
-                            {
-                                if(i == (wg1 - 1)) //Edge
-                                    MT1_B += (MT1_Edge * (K / gsu)) * bpeB;
-                                else
-                                    MT1_B += (MT1 * (K / gsu)) * bpeB;
-                                //std::cout<<"i,g,MT1_B:"<<i<<","<<g<<","<<MT1_B<<std::endl;
-                            }
-                        }
-                    }
-                    //std::cout<<"XCD:"<<xcd<<", next round("<<wg<<"): L2Capacity="<<L2Capacity<<", A:"<<MT0_A<<", B:"<<MT1_B<<std::endl;
-                    if(MT0_A + MT1_B <= L2Capacity)
-                    {
-                        //keep in cache
-                        //std::cout<<"keep in cache"<<std::endl;
-                        for(uint32_t g = 0; g < gsuMulBatch; g++)
-                            for(uint32_t i = 0; i < wg0; i++)
-                                arrA_2[g * wg0 + i] |= arrA[g * wg0 + i] & (1 << xcd);
-                        for(uint32_t g = 0; g < gsuMulBatch; g++)
-                            for(uint32_t i = 0; i < wg1; i++)
-                                arrB_2[g * wg1 + i] |= arrB[g * wg1 + i] & (1 << xcd);
-                    }
-                    else
-                    {
-                        //clean cache
-                        //std::cout<<"clean cache"<<std::endl;
-                        arrA_2.assign(wg0 * gsuMulBatch, 0);
-                        arrB_2.assign(wg1 * gsuMulBatch, 0);
-                    }
-                }
-
-                arrA.assign(wg0 * gsuMulBatch, 0);
-                arrB.assign(wg1 * gsuMulBatch, 0);
-            }
-
-            // go xccgroup
-            //std::cout<<"go xccgroup";
-            uint32_t xccgIdx  = wg / WGMXCCG;
-            uint32_t realWGId = xccgIdx * WGMXCCG;
-
-            // get xccgroup wgNum
-            //std::cout<<"get xccgroup wgNum";
-            uint32_t xccgWgNum = std::min(WGMXCCG, totalWGNum - realWGId);
-            // how many wg per xcc in this xccgroup
-            uint32_t xccunit = xccgWgNum / WGMXCC;
-            uint32_t xccres  = xccgWgNum % WGMXCC;
-            // starting wgId
-            uint32_t resWGId = (wg - realWGId) % xccgWgNum;
-
-            // go xcc
-            //std::cout<<"go xcc";
-            uint32_t xccIdx = resWGId % WGMXCC;
-            // skip previous xcc
-            uint32_t skip = 0;
-            for(int i = 0; i < xccIdx; i++)
-            {
-                // skip i
-                skip += xccunit;
-                if(i < xccres)
-                {
-                    // this xcc has extra 1 wg
-                    skip += 1;
-                }
-            }
-            realWGId += skip;
-
-            // go inner xccid
-            // in XCCN, we get the idx of the wg in XCCN.
-            uint32_t innerXccId = resWGId / WGMXCC;
-            realWGId += innerXccId;
-
-            int32_t  sgprWGM            = wgm;
-            uint32_t sgprNumWorkGroups0 = wg0;
-            uint32_t sgprNumWorkGroups1 = wg1;
-            uint32_t wg2     = realWGId / (sgprNumWorkGroups0 * sgprNumWorkGroups1 * gsu); //batch
-            uint32_t idxWG01 = realWGId - (wg2 * sgprNumWorkGroups0 * sgprNumWorkGroups1 * gsu);
-            uint32_t sgprWorkGroup1 = idxWG01 / wg0;
-            uint32_t sgprWorkGroup0 = idxWG01 - (sgprWorkGroup1 * wg0);
-
-            //go GSUWGMRR
-            //std::cout<<"realWGId = "<<realWGId<<" , sgprWorkGroup0 = "<<sgprWorkGroup0<<" , sgprWorkGroup1 = "<<sgprWorkGroup1<<std::endl;
-            uint32_t gsuSumIdx = 0;
-            if(isGSUWGMRR)
-            {
-                gsuSumIdx      = sgprWorkGroup1 / sgprNumWorkGroups1;
-                sgprWorkGroup1 = sgprWorkGroup1 % sgprNumWorkGroups1;
-            }
-            else
-            {
-                gsuSumIdx      = sgprWorkGroup1 % gsu;
-                sgprWorkGroup1 = sgprWorkGroup1 / gsu;
-            }
-            //std::cout<<"gsuSumIdx = "<<gsuSumIdx<<" , sgprWorkGroup0 = "<<sgprWorkGroup0<<" , sgprWorkGroup1 = "<<sgprWorkGroup1<<std::endl;
-            uint32_t finalwg1, finalwg0;
-            if(wgm > 0)
-            {
-                uint32_t v6  = sgprWorkGroup1 / sgprWGM;
-                uint32_t s84 = v6 * sgprWGM;
-                s84          = sgprWorkGroup1 - s84;
-                s84 *= sgprNumWorkGroups0;
-                s84 += sgprWorkGroup0;
-                uint32_t s81 = v6;
-
-                v6           = sgprNumWorkGroups1 / sgprWGM;
-                uint32_t s82 = v6;
-                uint32_t s83 = sgprWGM * s82;
-                s83          = sgprNumWorkGroups1 - s83;
-                if(s83 == 0)
-                    s83 = sgprWGM;
-                if(s81 >= s82)
-                    s82 = s83;
-                else
-                    s82 = sgprWGM;
-
-                v6             = s84 / s82;
-                uint32_t v7    = v6 * s82;
-                v7             = s84 - v7;
-                sgprWorkGroup0 = v6;
-                sgprWorkGroup1 = v7;
-                sgprWorkGroup1 = sgprWorkGroup0 * s82;
-                sgprWorkGroup1 = s84 - sgprWorkGroup1;
-                s81 *= sgprWGM;
-                sgprWorkGroup1 += s81;
-
-                finalwg1 = sgprWorkGroup1;
-                finalwg0 = sgprWorkGroup0;
-            }
-            else
-            {
-                sgprWGM = 0 - sgprWGM;
-
-                uint32_t v12 = sgprWorkGroup0 / sgprWGM;
-                uint32_t s85 = v12;
-
-                uint32_t s88 = s85 * sgprWGM;
-                s88          = sgprWorkGroup0 - s88;
-                s88 *= sgprNumWorkGroups1;
-                s88 += sgprWorkGroup1;
-
-                v12          = sgprNumWorkGroups0 / sgprWGM;
-                uint32_t s86 = v12;
-                uint32_t s87 = sgprWGM * s86;
-                s87          = sgprNumWorkGroups0 - s87;
-                if(s87 == 0)
-                    s87 = sgprWGM;
-                if(s85 >= s86)
-                    s86 = s87;
-                else
-                    s86 = sgprWGM;
-
-                v12          = s88 / s86;
-                uint32_t v13 = v12 * s86;
-                v13          = s88 - v13;
-
-                sgprWorkGroup1 = v12;
-                sgprWorkGroup0 = v13;
-                sgprWorkGroup0 = sgprWorkGroup1 * s86;
-                sgprWorkGroup0 = s88 - sgprWorkGroup0;
-                s85 *= sgprWGM;
-                sgprWorkGroup0 += s85;
-
-                finalwg0 = sgprWorkGroup0;
-                finalwg1 = sgprWorkGroup1;
-            }
-            //std::cout<<"xccIdx = "<<xccIdx<<" ,batch, gsuSumIdx, finalwg0, finalwg1 = "<<wg2<<","<<gsuSumIdx<<","<<finalwg0<<","<<finalwg1<<std::endl;
-            uint32_t idxA = (wg2 * gsu + gsuSumIdx) * wg0 + finalwg0;
-            if(isL2BypassA)
-            {
-                missA++;
-                if(finalwg0 == wg0 - 1) //Edge
-                    aMissElements += (MT0_Edge * depthU);
-                else
-                    aMissElements += (MT0 * depthU);
-            }
-            else if((arrA[idxA] & (1 << xccIdx)) || (arrA_2[idxA] & (1 << xccIdx)))
-            {
-                hitA++;
-                if(finalwg0 == (wg0 - 1)) //Edge
-                    aHitElements += (MT0_Edge * depthU);
-                else
-                    aHitElements += (MT0 * depthU);
-                //std::cout<<"hitA "<<aHitElements<<std::endl;
-                arrA[idxA] |= (1 << xccIdx);
-            }
-            else
-            {
-                missA++;
-                if(finalwg0 == wg0 - 1) //Edge
-                    aMissElements += (MT0_Edge * depthU);
-                else
-                    aMissElements += (MT0 * depthU);
-                //std::cout<<"missA "<<aMissElements<<std::endl;
-                arrA[idxA] |= (1 << xccIdx);
-            }
-            uint32_t idxB = (wg2 * gsu + gsuSumIdx) * wg1 + finalwg1;
-            if(isL2BypassB)
-            {
-                missB++;
-                if(finalwg1 == (wg1 - 1)) //Edge
-                    bMissElements += (MT1_Edge * depthU);
-                else
-                    bMissElements += (MT1 * depthU);
-            }
-            else if((arrB[idxB] & (1 << xccIdx)) || (arrB_2[idxB] & (1 << xccIdx)))
-            {
-                hitB++;
-                if(finalwg1 == (wg1 - 1)) //Edge
-                    bHitElements += (MT1_Edge * depthU);
-                else
-                    bHitElements += (MT1 * depthU);
-                //std::cout<<"hitB"<<std::endl;
-                arrB[idxB] |= (1 << xccIdx);
-            }
-            else
-            {
-                missB++;
-                if(finalwg1 == (wg1 - 1)) //Edge
-                    bMissElements += (MT1_Edge * depthU);
-                else
-                    bMissElements += (MT1 * depthU);
-                //std::cout<<"missB"<<std::endl;
-                arrB[idxB] |= (1 << xccIdx);
-            }
-        }
-
-        double hitRateA_old     = float(hitA) / float(hitA + missA);
-        double hitRateB_old     = float(hitB) / float(hitB + missB);
-        double totalHitRate_old = double(aRatio * hitRateA_old) + double(bRatio * hitRateB_old);
-
-        if(aHitElements > 0)
-            hitRateA = double(aHitElements) / double(aHitElements + aMissElements);
-        if(bHitElements > 0)
-            hitRateB = double(bHitElements) / double(bHitElements + bMissElements);
-        if(aHitElements + bHitElements > 0)
-            totalHitRate = double(aHitElements + bHitElements)
-                           / double(aHitElements + aMissElements + bHitElements + bMissElements);
-
-        //std::cout<<"Old HR is "<<hitRateA_old<<","<<hitRateB_old<<","<<totalHitRate_old<<std::endl;
-        //std::cout<<"New HR is "<<hitRateA<<","<<hitRateB<<","<<totalHitRate<<std::endl;
-        //std::cout<<"A Hit is "<<aHitElements<<", miss is"<<aMissElements<<std::endl;
-        //std::cout<<"B Hit is "<<bHitElements<<", miss is"<<bMissElements<<std::endl;
-        hitRate.totalHitRate = totalHitRate;
-        hitRate.tile0HitRate = hitRateA;
-        hitRate.tile1HitRate = hitRateB;
+        auto hr = Simulator::computeL2CacheHitRate(
+            M, N, K, MT0, MT1, depthU, hw.L2CacheCapacity, hw.NumCUs, hw.NumXCDs,
+            gsu, wgm, batches, bpeA, bpeB, NTA, NTB, isGSUWGMRR);
+        
+        L2CacheHitRate hitRate;
+        hitRate.totalHitRate = hr.totalHitRate;
+        hitRate.tile0HitRate = hr.tile0HitRate;
+        hitRate.tile1HitRate = hr.tile1HitRate;
 
         return hitRate;
     }
@@ -1696,108 +943,21 @@ namespace Tensilelite
 
     int Formocast::checkGlobalReadFIFOFull(int currentCycle, std::queue<int>& fifo, int bpRead, int numWaves, bool isStall) const
     {
-        int finalCycle = currentCycle;
-        int grStallLatencyBuffer;
-
-        if (!isStall) {
-            grStallLatencyBuffer = 1; //no stall
-        } else if (bpRead == 16) {
-            grStallLatencyBuffer = 160;
-        } else if (bpRead == 8) {
-            grStallLatencyBuffer = 80;
-        } else {
-            grStallLatencyBuffer = 40;
-        }
-
-        if (fifo.size() < (16 / numWaves)) {
-            fifo.push(currentCycle);
-        } else {
-            int oldCycle = fifo.front();
-            if ((currentCycle - oldCycle) >= grStallLatencyBuffer) {
-                fifo.pop();
-                fifo.push(currentCycle);
-            } else {
-                finalCycle = oldCycle + grStallLatencyBuffer;
-                fifo.pop();
-                fifo.push(finalCycle);
-            }
-        }
-        return finalCycle;
+        return Simulator::checkGlobalReadFIFOFull(currentCycle, fifo, bpRead, numWaves, isStall);
     }
 
     int Formocast::checkLocalReadFinished(int currentCycle, std::queue<int>& fifo, int numLR) const
     {
-        if(fifo.size() <= numLR)
-            return currentCycle;
-        int finalCycle = currentCycle;
-        //pop finisned LR
-        while(fifo.size() > numLR)
-        {
-            int oldCycle = fifo.front();
-            if (oldCycle < currentCycle)
-                fifo.pop();
-            else
-                break;
-        }
-        //check non-finished LR
-        while(fifo.size() > numLR)
-        {
-            int oldCycle = fifo.front();
-            finalCycle = std::max(finalCycle, oldCycle);
-        }
-        return finalCycle;
+        return Simulator::checkLocalReadFinished(currentCycle, fifo, numLR);
     }
 
     int Formocast::checkLocalReadFIFOFull(int currentCycle, std::queue<int>& fifo, int bpRead, int numWaves, bool isStall) const
     {
-        int finalCycle = currentCycle;
-        int lrStallLatencyBuffer;
-        if (!isStall){
-            lrStallLatencyBuffer = 1;
-        }
-        else if (bpRead == 16) {
-            lrStallLatencyBuffer = 10;
-        } else if (bpRead == 8) {
-            lrStallLatencyBuffer = 5;
-        } else {
-            lrStallLatencyBuffer = 2;
-        }
-
-        if (fifo.size() < (16 / numWaves)) {
-            fifo.push(currentCycle);
-        } else {
-            int oldCycle = fifo.front();
-            if ((currentCycle - oldCycle) >= lrStallLatencyBuffer) {
-                fifo.pop();
-                fifo.push(currentCycle);
-            } else {
-                finalCycle = oldCycle + lrStallLatencyBuffer;
-                fifo.pop();
-                fifo.push(finalCycle);
-            }
-        }
-        return finalCycle;
+        return Simulator::checkLocalReadFIFOFull(currentCycle, fifo, bpRead, numWaves, isStall);
     }
 
-    void Formocast::pushLocalRead(int currentCycle, std::queue<int>& fifo, int bpr, bool isGfx950) {
-
-        std::vector<int> latency(5);
-        if (isGfx950)
-        {
-            latency = {11,11,11,11,21};
-        }
-        else
-        {
-            latency = {12,12,12,21,27};
-        }
-        int lrMemLatency;
-        if (bpr == 16) {
-            lrMemLatency = latency[4];
-        } else if (bpr == 8) {
-            lrMemLatency = latency[3];
-        } else {
-            lrMemLatency = latency[2];
-        }
-        fifo.push(currentCycle + lrMemLatency);
+    void Formocast::pushLocalRead(int currentCycle, std::queue<int>& fifo, int bpr, bool isGfx950)
+    {
+        Simulator::pushLocalRead(currentCycle, fifo, bpr, isGfx950);
     }
 } // namespace Tensilelite
