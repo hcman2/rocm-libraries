@@ -197,7 +197,7 @@ namespace Tensilelite
         hw.NumCUs               = hardware->N_CU;
         hw.NumXCDs              = hardware->NUM_XCD;
         hw.L2CacheCapacity      = hardware->L2_capacity;
-        hw.boost_frequency      = hardware->compute_clock_ghz * 1000;
+        //hw.boost_frequency      = hardware->compute_clock_ghz * 11750 / 11;    //FIXME: Use Formocast default frequency.
         return hw;
     }
 
