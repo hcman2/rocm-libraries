@@ -325,12 +325,12 @@ namespace TensileLite
                     }
                 }
 
-                auto comp = [](const std::pair<int, double>& e1, const std::pair<int, double>& e2) { return e1.second > e2.second; };
+                auto comp = [](const std::pair<int, double>& e1, const std::pair<int, double>& e2) { return e1.second < e2.second; };
                 std::sort(performance.begin(),performance.end(),comp);
                 // TODO: This is the simple threshold method.
                 // May use the best perf * 1.x as threshold in the future.
                 size_t index    = std::min(performance.size() - 1, size_t(performance.size() * m_predictionThreshold));
-                auto threshhold = performance[performance.size() - 1 - index].second;
+                auto threshhold = performance[index].second;
 
                 // push content
                 if(!m_qSolutionIdx.empty())
@@ -343,16 +343,16 @@ namespace TensileLite
                 {
                     if(m_predictionThreshold == 0.0)
                     {   
-                        auto bestIdx = performance.size() - 1;
+                        auto bestIdx = 0;
                         if(auto gemmProblem = dynamic_cast<ContractionProblemGemm*>(problem))
                         {
                             Tensilelite::Formocast::TieBreakerInfo perfInfo;
                             perfInfo = tbInfo[performance[bestIdx].first];
 
                             threshhold = performance[bestIdx].second * 1.1;
-                            for (int j = performance.size() - 2; ; j--)
+                            for (int j = 1; ; j++)
                             {
-                                if (j < 0) break;
+                                if (j == performance.size()) break;
                                 if (threshhold < performance[j].second) break;
                                 auto currSol  = tbInfo[performance[j].first];
                                 if (formocast.isBetter(perfInfo, currSol))
