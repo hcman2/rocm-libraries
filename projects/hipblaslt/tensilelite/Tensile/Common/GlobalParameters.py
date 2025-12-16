@@ -262,7 +262,7 @@ globalParameters["MaxWorkspaceSize"] = 128 * 1024 * 1024  # max workspace for tr
 globalParameters["GranularityThreshold"] = 0.0
 
 # control if a solution is run for a given performance prediction
-globalParameters["PredictionThreshold"] = 1.0
+globalParameters["PredictionThreshold"] = 2.0
 
 globalParameters["PristineOnGPU"] = (
     True  # use Pristine memory on Tensile trainning verification or not
