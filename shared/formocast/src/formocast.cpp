@@ -967,7 +967,6 @@ namespace Tensilelite
             }
             fifo.push(currentCycle + lrMemLatency);
         }
-
-    } // namespace Simulator
+    }
 } // namespace Tensilelite
 

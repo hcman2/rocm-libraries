@@ -445,42 +445,14 @@ namespace Tensilelite
 
     bool Formocast::isBetter(ProblemInfo problem, TieBreakerInfo previousSolution) const
     {
-        double M = problem.M;
-        double N = problem.N;
-        double NumBatches = problem.NumBatches;
-        double K = problem.K;
-
-        assert(M != 0);
-
-        if (N <= 32 && M >= 1024 && K >= 1024)
-        {
-            auto currSol = getTieBreakerInfo();
-            auto currSkinny = currSol.mt0 * currSol.du / M;
-            auto prevSkinny = previousSolution.mt0 * previousSolution.du / M;
-            if (currSol.mt1 == N && currSkinny > prevSkinny)
-            {
-                return true;
-            }
-        }
-        if (M <= 32 && N >= 1024 && K >= 1024)
-        {
-            auto currSol = getTieBreakerInfo();
-            auto currSkinny = currSol.mt1 * currSol.du / M;
-            auto prevSkinny = previousSolution.mt1 * previousSolution.du / M;
-            if (currSol.mt0 == M && currSkinny > prevSkinny)
-            {
-                return true;
-            }
-        }
-        if (NumBatches == 1 && K <= 512 && M >= 1024 && N >= 1024)
-        {
-            auto currSol = getTieBreakerInfo();
-            if (currSol.svw > previousSolution.svw)
-            {
-                return true;
-            }
-        }
-        return false;
+        auto currSol = getTieBreakerInfo();
+        
+        // Call standalone tie-breaker function
+        return compareConfigTieBreaker(
+            problem.M, problem.N, problem.K, problem.NumBatches,
+            currSol.mt0, currSol.mt1, currSol.du, currSol.svw,
+            previousSolution.mt0, previousSolution.mt1, previousSolution.du, previousSolution.svw
+        );
     }
 
     // NB:
@@ -489,39 +461,12 @@ namespace Tensilelite
     //   False doesn't means worse, means tie (equal) --> IMPORTANT note since this would be used in std::sort
     bool Formocast::isBetter(TieBreakerInfo previousSolution, TieBreakerInfo currentSolution) const
     {
-        double M = problem.M;
-        double N = problem.N;
-        double NumBatches = problem.NumBatches;
-        double K = problem.K;
-
-        assert(M != 0);
-
-        if (N <= 32 && M >= 1024 && K >= 1024)
-        {
-            auto currSkinny = currentSolution.mt0 * currentSolution.du / M;
-            auto prevSkinny = previousSolution.mt0 * previousSolution.du / M;
-            if (currentSolution.mt1 == N && currSkinny > prevSkinny)
-            {
-                return true;
-            }
-        }
-        if (M <= 32 && N >= 1024 && K >= 1024)
-        {
-            auto currSkinny = currentSolution.mt1 * currentSolution.du / M;
-            auto prevSkinny = previousSolution.mt1 * previousSolution.du / M;
-            if (currentSolution.mt0 == M && currSkinny > prevSkinny)
-            {
-                return true;
-            }
-        }
-        if (NumBatches == 1 && K <= 512 && M >= 1024 && N >= 1024)
-        {
-            if (currentSolution.svw > previousSolution.svw)
-            {
-                return true;
-            }
-        }
-        return false;
+        // Call standalone tie-breaker function
+        return compareConfigTieBreaker(
+            problem.M, problem.N, problem.K, problem.NumBatches,
+            currentSolution.mt0, currentSolution.mt1, currentSolution.du, currentSolution.svw,
+            previousSolution.mt0, previousSolution.mt1, previousSolution.du, previousSolution.svw
+        );
     }
 
     Formocast::TieBreakerInfo Formocast::getTieBreakerInfo() const
@@ -539,39 +484,12 @@ namespace Tensilelite
         if(previousSolution == currentSolution)
             return false;
 
-        double M = problem.M;
-        double N = problem.N;
-        double NumBatches = problem.NumBatches;
-        double K = problem.K;
-
-        assert(M != 0);
-
-        if (N <= 32 && M >= 1024 && K >= 1024)
-        {
-            auto currSkinny = currentSolution.mt0 * currentSolution.du / M;
-            auto prevSkinny = previousSolution.mt0 * previousSolution.du / M;
-            if (currentSolution.mt1 == N && currSkinny > prevSkinny)
-            {
-                return true;
-            }
-        }
-        if (M <= 32 && N >= 1024 && K >= 1024)
-        {
-            auto currSkinny = currentSolution.mt1 * currentSolution.du / M;
-            auto prevSkinny = previousSolution.mt1 * previousSolution.du / M;
-            if (currentSolution.mt0 == M && currSkinny > prevSkinny)
-            {
-                return true;
-            }
-        }
-        if (NumBatches == 1 && K <= 512 && M >= 1024 && N >= 1024)
-        {
-            if (currentSolution.svw > previousSolution.svw)
-            {
-                return true;
-            }
-        }
-        return false;
+        // Call standalone tie-breaker function
+        return compareConfigTieBreaker(
+            problem.M, problem.N, problem.K, problem.NumBatches,
+            currentSolution.mt0, currentSolution.mt1, currentSolution.du, currentSolution.svw,
+            previousSolution.mt0, previousSolution.mt1, previousSolution.du, previousSolution.svw
+        );
     }
 
     Formocast::MinTieBreakerInfo Formocast::getMinTieBreakerInfo() const
@@ -967,5 +885,44 @@ namespace Tensilelite
     void Formocast::pushLocalRead(int currentCycle, std::queue<int>& fifo, int bpr, bool isGfx950)
     {
         Simulator::pushLocalRead(currentCycle, fifo, bpr, isGfx950);
+    }
+
+    // Standalone tie-breaker function implementation
+    bool compareConfigTieBreaker(
+        double M, double N, double K, size_t batch,
+        double mt0_a, double mt1_a, double du_a, int svw_a,
+        double mt0_b, double mt1_b, double du_b, int svw_b
+    )
+    {
+        // Skinny N case: N <= 32 && M >= 1024 && K >= 1024
+        // Prefer configurations with larger "skinny ratio" when mt1 matches N
+        if (N <= 32 && M >= 1024 && K >= 1024) {
+            auto skinny_a = mt0_a * du_a / M;
+            auto skinny_b = mt0_b * du_b / M;
+            if (mt1_a == N && mt1_b == N && skinny_a != skinny_b) {
+                return skinny_a > skinny_b;
+            }
+        }
+
+        // Skinny M case: M <= 32 && N >= 1024 && K >= 1024
+        // Prefer configurations with larger "skinny ratio" when mt0 matches M
+        if (M <= 32 && N >= 1024 && K >= 1024) {
+            auto skinny_a = mt1_a * du_a / N;
+            auto skinny_b = mt1_b * du_b / N;
+            if (mt0_a == M && mt0_b == M && skinny_a != skinny_b) {
+                return skinny_a > skinny_b;
+            }
+        }
+
+        // Wide & short K case: batch == 1 && K <= 512 && M >= 1024 && N >= 1024
+        // Prefer larger store vector width for better memory efficiency
+        if (batch == 1 && K <= 512 && M >= 1024 && N >= 1024) {
+            if (svw_a != svw_b) {
+                return svw_a > svw_b;
+            }
+        }
+
+        // No preference - configurations are considered equal
+        return false;
     }
 } // namespace Tensilelite
