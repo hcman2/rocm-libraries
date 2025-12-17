@@ -170,7 +170,7 @@ namespace Tensilelite
     }
 
     Formocast::HardwareConstants
-    Formocast::getHardwareConstants() const
+    Formocast::getHardwareConstants(std::shared_ptr<origami::hardware_t> hardware) const
     {
         HardwareConstants hw;
         if(hardware->arch == origami::hardware_t::architecture_t::gfx950)
@@ -608,7 +608,7 @@ namespace Tensilelite
         bool     isSwizzleB = problem.swizzleTensorB;
 
         // 2. Hardware Parameter Extraction
-        HardwareConstants hw_consts = getHardwareConstants();
+        //HardwareConstants hw_consts = getHardwareConstants();
         //hw_consts.print();
 
         // 3. Variables directly from sizeMapping
@@ -934,6 +934,9 @@ namespace Tensilelite
     void Formocast::setProblem(ProblemInfo p)
     {
         problem = p;
+        if (problem.M == 0 || problem.N == 0 || problem.K == 0)
+            throw std::runtime_error(
+                "Problem size is invalid");
     }
 
     void Formocast::setSolution(SizeMapping sm)
@@ -943,7 +946,7 @@ namespace Tensilelite
 
     void Formocast::setHardware(std::shared_ptr<origami::hardware_t> hw)
     {
-        hardware = hw;
+        hw_consts = getHardwareConstants(hw);
     }
 
     int Formocast::checkGlobalReadFIFOFull(int currentCycle, std::queue<int>& fifo, int bpRead, int numWaves, bool isStall) const

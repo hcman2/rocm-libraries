@@ -449,58 +449,58 @@ namespace Tensilelite
                 //clean cache
                 if((wg % WGMXCCG) == 0)
                 {
-                    //loop every XCDs
-                    for(uint32_t xcd = 0; xcd < NumXCDs && wg > 0; xcd++)
-                    {
-                        uint32_t MT0_A = 0;
-                        for(uint32_t g = 0; g < gsuMulBatch; g++)
-                        {
-                            for(uint32_t i = 0; i < wg0; i++)
-                            {
-                                if(arrA[g * wg0 + i] & (1 << xcd))
-                                {
-                                    if(i == (wg0 - 1)) //Edge
-                                        MT0_A += (MT0_Edge * (K / gsu)) * bpeA;
-                                    else
-                                        MT0_A += (MT0 * (K / gsu)) * bpeA;
-                                }
-                            }
-                        }
+                    // FIXME: loop every XCDs is disabled
+                    // for(uint32_t xcd = 0; xcd < NumXCDs && wg > 0; xcd++)
+                    // {
+                    //     uint32_t MT0_A = 0;
+                    //     for(uint32_t g = 0; g < gsuMulBatch; g++)
+                    //     {
+                    //         for(uint32_t i = 0; i < wg0; i++)
+                    //         {
+                    //             if(arrA[g * wg0 + i] & (1 << xcd))
+                    //             {
+                    //                 if(i == (wg0 - 1)) //Edge
+                    //                     MT0_A += (MT0_Edge * (K / gsu)) * bpeA;
+                    //                 else
+                    //                     MT0_A += (MT0 * (K / gsu)) * bpeA;
+                    //             }
+                    //         }
+                    //     }
 
-                        uint32_t MT1_B = 0;
-                        for(uint32_t g = 0; g < gsuMulBatch; g++)
-                        {
-                            for(uint32_t i = 0; i < wg1; i++)
-                            {
-                                if(arrB[g * wg1 + i] & (1 << xcd))
-                                {
-                                    if(i == (wg1 - 1)) //Edge
-                                        MT1_B += (MT1_Edge * (K / gsu)) * bpeB;
-                                    else
-                                        MT1_B += (MT1 * (K / gsu)) * bpeB;
-                                }
-                            }
-                        }
-                        if(MT0_A + MT1_B <= L2Capacity)
-                        {
-                            //keep in cache
-                            for(uint32_t g = 0; g < gsuMulBatch; g++)
-                                for(uint32_t i = 0; i < wg0; i++)
-                                    arrA_2[g * wg0 + i] |= arrA[g * wg0 + i] & (1 << xcd);
-                            for(uint32_t g = 0; g < gsuMulBatch; g++)
-                                for(uint32_t i = 0; i < wg1; i++)
-                                    arrB_2[g * wg1 + i] |= arrB[g * wg1 + i] & (1 << xcd);
-                        }
-                        else
-                        {
-                            //clean cache
-                            //arrA_2.assign(wg0 * gsuMulBatch, 0);
-                            //arrB_2.assign(wg1 * gsuMulBatch, 0);
+                    //     uint32_t MT1_B = 0;
+                    //     for(uint32_t g = 0; g < gsuMulBatch; g++)
+                    //     {
+                    //         for(uint32_t i = 0; i < wg1; i++)
+                    //         {
+                    //             if(arrB[g * wg1 + i] & (1 << xcd))
+                    //             {
+                    //                 if(i == (wg1 - 1)) //Edge
+                    //                     MT1_B += (MT1_Edge * (K / gsu)) * bpeB;
+                    //                 else
+                    //                     MT1_B += (MT1 * (K / gsu)) * bpeB;
+                    //             }
+                    //         }
+                    //     }
+                    //     if(MT0_A + MT1_B <= L2Capacity)
+                    //     {
+                    //         //keep in cache
+                    //         for(uint32_t g = 0; g < gsuMulBatch; g++)
+                    //             for(uint32_t i = 0; i < wg0; i++)
+                    //                 arrA_2[g * wg0 + i] |= arrA[g * wg0 + i] & (1 << xcd);
+                    //         for(uint32_t g = 0; g < gsuMulBatch; g++)
+                    //             for(uint32_t i = 0; i < wg1; i++)
+                    //                 arrB_2[g * wg1 + i] |= arrB[g * wg1 + i] & (1 << xcd);
+                    //     }
+                    //     else
+                    //     {
+                    //         //clean cache
+                    //         //arrA_2.assign(wg0 * gsuMulBatch, 0);
+                    //         //arrB_2.assign(wg1 * gsuMulBatch, 0);
 
-                            std::memset(arrA_2.data(), 0, arrA_2.size() * sizeof(uint32_t));
-                            std::memset(arrB_2.data(), 0, arrB_2.size() * sizeof(uint32_t));
-                        }
-                    }
+                    //         std::memset(arrA_2.data(), 0, arrA_2.size() * sizeof(uint32_t));
+                    //         std::memset(arrB_2.data(), 0, arrB_2.size() * sizeof(uint32_t));
+                    //     }
+                    // }
 
                     //arrA.assign(wg0 * gsuMulBatch, 0);
                     //arrB.assign(wg1 * gsuMulBatch, 0);
@@ -910,6 +910,7 @@ namespace Tensilelite
             {
                 int oldCycle = fifo.front();
                 finalCycle = std::max(finalCycle, oldCycle);
+                fifo.pop();
             }
             return finalCycle;
         }

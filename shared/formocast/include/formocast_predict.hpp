@@ -220,7 +220,7 @@ namespace Tensilelite
         void setProblem(ProblemInfo p);
         void setSolution(SizeMapping sm);
         void setHardware(std::shared_ptr<origami::hardware_t> hw);
-        HardwareConstants getHardwareConstants(void) const;
+        HardwareConstants getHardwareConstants(std::shared_ptr<origami::hardware_t> hardware) const;
         void calculateStorePerformance(double M,
                                        double N,
                                        double NumBatches,
@@ -298,7 +298,7 @@ namespace Tensilelite
     public:
         SizeMapping sizeMapping;
         ProblemInfo problem;
-        std::shared_ptr<origami::hardware_t> hardware;
+        HardwareConstants hw_consts;
         // TODO- need this mutable member data? or we can just create a new one to return (i.e. MinTieBreakerInfo)
         //  (std::sort with this data casues seg.fault. Using the un-mutable version "MinTieBreakerInfo" works fine)
         mutable TieBreakerInfo perfInfo;
