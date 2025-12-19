@@ -322,8 +322,6 @@ namespace rocisa
             else if(auto mfmaInst = std::dynamic_pointer_cast<MFMAInstruction>(item))
             {
                 auto mfmaLatency = mfmaInst->getIssueLatency();
-                //FIXME: hack here for gfx950 bug in mfmaInst->getIssueLatency();
-                mfmaLatency /= 2;
                 if(cycles - hwMFMA >= (mfmaLatency - 1))
                 {
                     cycles += 1;

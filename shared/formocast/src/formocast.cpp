@@ -905,13 +905,13 @@ namespace Tensilelite
                 else
                     break;
             }
-            //check non-finished LR
-            while(fifo.size() > numLR)
-            {
-                int oldCycle = fifo.front();
-                finalCycle = std::max(finalCycle, oldCycle);
-                fifo.pop();
-            }
+            // FIXME: check non-finished LR
+            // while(fifo.size() > numLR)
+            // {
+            //     int oldCycle = fifo.front();
+            //     finalCycle = std::max(finalCycle, oldCycle);
+            //     break;
+            // }
             return finalCycle;
         }
 
