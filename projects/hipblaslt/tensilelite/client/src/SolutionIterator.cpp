@@ -380,7 +380,7 @@ namespace TensileLite
                 m_currentPrediction  = m_qSolutionIdx.front().second;
                 m_currentIdx = 0;
 
-                std::cout<<"predict performance is "<<performance[performance.size() - 1].second<<" us, idx = "<<performance[performance.size() - 1].first<<std::endl;
+                std::cout<<"predict performance is "<<performance[0].second<<" us, idx = "<<performance[0].first<<std::endl;
                 //std::cout<<"Threshold performance is "<<threshhold<<std::endl;
                 //std::cout<<"Solution number is "<<m_qSolutionIdx.size()<<std::endl;
             }
@@ -401,7 +401,7 @@ namespace TensileLite
             else
             {
                 m_reporter->report(ResultKey::SolutionProgress,
-                    concatenate("hitrate,",m_hitrate[m_currentSolutionIdx],",",m_currentSolutionIdx,"->",m_currentPrediction," us, ",m_currentSolutionIdx,"/",m_lastSolutionIdx));
+                    concatenate("hitrate,",m_hitrate[m_currentSolutionIdx],",",m_currentSolutionIdx,"->",m_currentPrediction," us, ",m_currentIdx,", ",m_currentSolutionIdx,"/",m_lastSolutionIdx));
             }
         }
 
