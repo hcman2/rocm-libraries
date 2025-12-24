@@ -11,6 +11,8 @@
 #include <array>
 #include <queue>
 #include <iostream>
+#include <unordered_map>
+#include <formocast.hpp>
 
 namespace Tensilelite
 {
@@ -90,6 +92,11 @@ namespace Tensilelite
 
         struct L1CacheHitRate : public L2CacheHitRate{};
         struct L3CacheHitRate : public L2CacheHitRate{};
+
+        struct BankConflictResult {
+            double ratioA = 1.0;
+            double ratioB = 1.0;
+        };
 
         struct HardwareConstants
         {
@@ -314,6 +321,13 @@ namespace Tensilelite
         int checkLocalReadFinished(int currentCycle, std::queue<int>& fifo, int numLR) const;
         int checkGlobalReadFIFOFull(int currentCycle, std::queue<int>& fifo, int bpRead, int numWaves, bool isStall) const;
         void pushLocalRead(int currentCycle, std::queue<int>& fifo, int bpr, bool isGfx950);
+        // Helper function to analyze bank conflicts from VGPR states
+        BankConflictResult analyzeBankConflictsFromVGPR(
+            const std::vector<std::unordered_map<std::string, int64_t>>& vgprState,
+            const std::string& vgprLocalReadAddrA,
+            const std::string& vgprLocalReadAddrB,
+            int LocalReadBytesA,
+            int LocalReadBytesB);
     public:
         SizeMapping sizeMapping;
         ProblemInfo problem;

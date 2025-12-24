@@ -34,6 +34,7 @@
 #include <random>
 #include <cassert>
 #include <cstring>
+#include <iomanip>
 
 namespace Tensilelite
 {
@@ -1021,5 +1022,22 @@ namespace Tensilelite
 
         // No preference - configurations are considered equal
         return false;
+    }
+    
+    // Helper function to analyze bank conflicts from VGPR states
+    Formocast::BankConflictResult Formocast::analyzeBankConflictsFromVGPR(
+        const std::vector<std::unordered_map<std::string, int64_t>>& vgprState,
+        const std::string& vgprLocalReadAddrA,
+        const std::string& vgprLocalReadAddrB,
+        int LocalReadBytesA,
+        int LocalReadBytesB)
+    {
+        BankConflictResult result;
+        int NUM_THREADS_TO_SIMULATE = hw_consts.wavefrontSize;
+        int NUM_BANKS = 32;
+        int BANK_WIDTH = 4;
+        result.ratioA = Simulator::analyzeBankConflictsFromVGPR(vgprState, vgprLocalReadAddrA, NUM_THREADS_TO_SIMULATE, NUM_BANKS, BANK_WIDTH, LocalReadBytesA);
+        result.ratioB = Simulator::analyzeBankConflictsFromVGPR(vgprState, vgprLocalReadAddrB, NUM_THREADS_TO_SIMULATE, NUM_BANKS, BANK_WIDTH, LocalReadBytesB);
+        return result;
     }
 } // namespace Tensilelite

@@ -28,6 +28,9 @@
 
 #include <queue>
 #include <cstdint>
+#include <vector>
+#include <unordered_map>
+#include <string>
 
 namespace Tensilelite
 {
@@ -121,6 +124,14 @@ namespace Tensilelite
         int checkLocalReadFinished(int currentCycle, std::queue<int>& fifo, int numLR);
         int checkLocalReadFIFOFull(int currentCycle, std::queue<int>& fifo, int bpRead, int numWaves, bool isStall);
         void pushLocalRead(int currentCycle, std::queue<int>& fifo, int bpr, bool isGfx950);
+
+        double analyzeBankConflictsFromVGPR(
+            const std::vector<std::unordered_map<std::string, int64_t>>& vgprState,
+            const std::string& vgprLocalReadAddrA,
+            int NUM_THREADS_TO_SIMULATE,
+            int NUM_BANKS,
+            int BANK_WIDTH,
+            int LocalReadBytesA);
 
     } // namespace Simulator
 } // namespace Tensilelite

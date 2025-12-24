@@ -984,6 +984,62 @@ namespace Tensilelite
             }
             fifo.push(currentCycle + lrMemLatency);
         }
+
+        double analyzeBankConflictsFromVGPR(
+            const std::vector<std::unordered_map<std::string, int64_t>>& vgprState,
+            const std::string& vgprLocalReadAddrA,
+            int NUM_THREADS_TO_SIMULATE,
+            int NUM_BANKS,
+            int BANK_WIDTH,
+            int LocalReadBytesA)
+        {
+            double ratioA = 1.0;
+            
+            // Track bank usage for conflict analysis
+            std::unordered_map<int, int> bankUsageA;
+            
+            if(!vgprLocalReadAddrA.empty())
+            {
+                for(int tid = 0; tid < NUM_THREADS_TO_SIMULATE; tid++)
+                {
+                    if(!vgprLocalReadAddrA.empty() && vgprState[tid].find(vgprLocalReadAddrA) != vgprState[tid].end())
+                    {
+                        int64_t addrA = vgprState[tid].at(vgprLocalReadAddrA);
+                        int64_t startAddr = addrA;
+                        int64_t endAddr = addrA + LocalReadBytesA - 1;
+                        
+                        // Calculate which banks are accessed by the read range [startAddr, endAddr]
+                        int startBankA = (startAddr / BANK_WIDTH) % NUM_BANKS;
+                        
+                        // Number of BANK_WIDTH-sized chunks this read spans
+                        int numBanksAccessed = (endAddr / BANK_WIDTH) - (startAddr / BANK_WIDTH) + 1;
+                        
+                        // Account for all banks accessed by this LocalReadBytesA read
+                        for(int i = 0; i < numBanksAccessed; i++)
+                        {
+                            int bank = (startBankA + i) % NUM_BANKS;
+                            bankUsageA[bank]++;
+                        }
+                    }
+                }
+                
+                // Analyze bank conflicts
+                if(!bankUsageA.empty())
+                {
+                    int maxUsageA = 0;
+                    int totalAccessesA = 0;
+                    for(const auto& pair : bankUsageA)
+                    {
+                        maxUsageA = std::max(maxUsageA, pair.second);
+                        totalAccessesA += pair.second;
+                    }
+                    double avgUsageA = (double)totalAccessesA / NUM_BANKS;
+                    ratioA = (avgUsageA > 0) ? (double)maxUsageA / avgUsageA : 1.0;
+                }
+            }
+            
+            return ratioA;
+        }
     }
 } // namespace Tensilelite
 
