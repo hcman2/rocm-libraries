@@ -11,6 +11,7 @@
 #include <array>
 #include <queue>
 #include <iostream>
+#include <unordered_map>
 
 namespace Tensilelite
 {
@@ -347,5 +348,22 @@ namespace Tensilelite
         double mt0_a, double mt1_a, double du_a, int svw_a,
         double mt0_b, double mt1_b, double du_b, int svw_b
     );
+
+    // Structure to hold bank conflict analysis results
+    struct BankConflictResult {
+        double ratioA = 1.0;
+        double ratioB = 1.0;
+    };
+    
+    // Helper function to analyze bank conflicts from VGPR states
+    BankConflictResult analyzeBankConflictsFromVGPR(
+        const std::vector<std::unordered_map<std::string, int64_t>>& vgprState,
+        const std::string& vgprLocalReadAddrA,
+        const std::string& vgprLocalReadAddrB,
+        int NUM_THREADS_TO_SIMULATE,
+        int NUM_BANKS,
+        int BANK_WIDTH,
+        int LocalReadBytesA,
+        int LocalReadBytesB);
 
 } // namespace Tensilelite

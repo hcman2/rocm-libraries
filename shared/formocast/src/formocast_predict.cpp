@@ -34,6 +34,7 @@
 #include <random>
 #include <cassert>
 #include <cstring>
+#include <iomanip>
 
 namespace Tensilelite
 {
@@ -1021,5 +1022,184 @@ namespace Tensilelite
 
         // No preference - configurations are considered equal
         return false;
+    }
+    
+    // Helper function to analyze bank conflicts from VGPR states
+    BankConflictResult analyzeBankConflictsFromVGPR(
+        const std::vector<std::unordered_map<std::string, int64_t>>& vgprState,
+        const std::string& vgprLocalReadAddrA,
+        const std::string& vgprLocalReadAddrB,
+        int NUM_THREADS_TO_SIMULATE,
+        int NUM_BANKS,
+        int BANK_WIDTH,
+        int LocalReadBytesA,
+        int LocalReadBytesB)
+    {
+        BankConflictResult result;
+        
+        std::cout << "\n========================================" << std::endl;
+        std::cout << "Address Calculation Results" << std::endl;
+        std::cout << "========================================" << std::endl;
+        
+        // Track bank usage for conflict analysis
+        std::unordered_map<int, int> bankUsageA;
+        std::unordered_map<int, int> bankUsageB;
+        
+        if(!vgprLocalReadAddrA.empty() || !vgprLocalReadAddrB.empty())
+        {
+            std::cout << "Simulated addresses for first " << NUM_THREADS_TO_SIMULATE << " threads:" << std::endl;
+            std::cout << "----------------------------------------" << std::endl;
+            
+            for(int tid = 0; tid < NUM_THREADS_TO_SIMULATE; tid++)
+            {
+                std::cout << "Thread " << std::setw(2) << tid << ": ";
+                
+                if(!vgprLocalReadAddrA.empty() && vgprState[tid].find(vgprLocalReadAddrA) != vgprState[tid].end())
+                {
+                    int64_t addrA = vgprState[tid].at(vgprLocalReadAddrA);
+                    int64_t startAddr = addrA;
+                    int64_t endAddr = addrA + LocalReadBytesA - 1;
+                    
+                    // Calculate which banks are accessed by the read range [startAddr, endAddr]
+                    int startBankA = (startAddr / BANK_WIDTH) % NUM_BANKS;
+                    int endBankA = (endAddr / BANK_WIDTH) % NUM_BANKS;
+                    
+                    // Number of BANK_WIDTH-sized chunks this read spans
+                    int numBanksAccessed = (endAddr / BANK_WIDTH) - (startAddr / BANK_WIDTH) + 1;
+                    
+                    // Account for all banks accessed by this LocalReadBytesA read
+                    for(int i = 0; i < numBanksAccessed; i++)
+                    {
+                        int bank = (startBankA + i) % NUM_BANKS;
+                        bankUsageA[bank]++;
+                    }
+                    
+                    if(numBanksAccessed == 1)
+                    {
+                        std::cout << "AddrA=0x" << std::hex << std::setw(4) << std::setfill('0') << addrA 
+                                 << std::dec << std::setfill(' ') << " (bank " << std::setw(2) << startBankA << ")";
+                    }
+                    else
+                    {
+                        std::cout << "AddrA=0x" << std::hex << std::setw(4) << std::setfill('0') << addrA 
+                                 << std::dec << std::setfill(' ') << " (banks " << std::setw(2) << startBankA 
+                                 << "-" << endBankA << ")";
+                    }
+                }
+                
+                if(!vgprLocalReadAddrB.empty() && vgprState[tid].find(vgprLocalReadAddrB) != vgprState[tid].end())
+                {
+                    int64_t addrB = vgprState[tid].at(vgprLocalReadAddrB);
+                    int64_t startAddr = addrB;
+                    int64_t endAddr = addrB + LocalReadBytesB - 1;
+                    
+                    // Calculate which banks are accessed by the read range [startAddr, endAddr]
+                    int startBankB = (startAddr / BANK_WIDTH) % NUM_BANKS;
+                    int endBankB = (endAddr / BANK_WIDTH) % NUM_BANKS;
+                    
+                    // Number of BANK_WIDTH-sized chunks this read spans
+                    int numBanksAccessed = (endAddr / BANK_WIDTH) - (startAddr / BANK_WIDTH) + 1;
+                    
+                    // Account for all banks accessed by this LocalReadBytesB read
+                    for(int i = 0; i < numBanksAccessed; i++)
+                    {
+                        int bank = (startBankB + i) % NUM_BANKS;
+                        bankUsageB[bank]++;
+                    }
+                    
+                    if(numBanksAccessed == 1)
+                    {
+                        std::cout << "  AddrB=0x" << std::hex << std::setw(4) << std::setfill('0') << addrB 
+                                 << std::dec << std::setfill(' ') << " (bank " << std::setw(2) << startBankB << ")";
+                    }
+                    else
+                    {
+                        std::cout << "  AddrB=0x" << std::hex << std::setw(4) << std::setfill('0') << addrB 
+                                 << std::dec << std::setfill(' ') << " (banks " << std::setw(2) << startBankB 
+                                 << "-" << endBankB << ")";
+                    }
+                }
+                
+                std::cout << std::endl;
+            }
+            
+            // Analyze bank conflicts
+            std::cout << "\n========================================" << std::endl;
+            std::cout << "Bank Conflict Analysis (for " << NUM_THREADS_TO_SIMULATE << " threads)" << std::endl;
+            std::cout << "========================================" << std::endl;
+            
+            if(!bankUsageA.empty())
+            {
+                int maxUsageA = 0;
+                int totalAccessesA = 0;
+                for(const auto& pair : bankUsageA)
+                {
+                    maxUsageA = std::max(maxUsageA, pair.second);
+                    totalAccessesA += pair.second;
+                }
+                double avgUsageA = (double)totalAccessesA / NUM_BANKS;
+                result.ratioA = (avgUsageA > 0) ? (double)maxUsageA / avgUsageA : 1.0;
+                
+                std::cout << "Tensor A:" << std::endl;
+                std::cout << "  Banks used:          " << bankUsageA.size() << "/" << NUM_BANKS << std::endl;
+                std::cout << "  Max bank usage:      " << maxUsageA << " threads" << std::endl;
+                std::cout << "  Avg bank usage:      " << std::fixed << std::setprecision(2) << avgUsageA << std::endl;
+                std::cout << "  Conflict ratio:      " << result.ratioA << std::endl;
+                
+                if(result.ratioA > 1.5)
+                {
+                    std::cout << "  Status:              WARNING - High conflict!" << std::endl;
+                }
+                else if(result.ratioA > 1.1)
+                {
+                    std::cout << "  Status:              Moderate conflict" << std::endl;
+                }
+                else
+                {
+                    std::cout << "  Status:              Good distribution" << std::endl;
+                }
+            }
+            
+            if(!bankUsageB.empty())
+            {
+                int maxUsageB = 0;
+                int totalAccessesB = 0;
+                for(const auto& pair : bankUsageB)
+                {
+                    maxUsageB = std::max(maxUsageB, pair.second);
+                    totalAccessesB += pair.second;
+                }
+                double avgUsageB = (double)totalAccessesB / NUM_BANKS;
+                result.ratioB = (avgUsageB > 0) ? (double)maxUsageB / avgUsageB : 1.0;
+                
+                std::cout << "\nTensor B:" << std::endl;
+                std::cout << "  Banks used:          " << bankUsageB.size() << "/" << NUM_BANKS << std::endl;
+                std::cout << "  Max bank usage:      " << maxUsageB << " threads" << std::endl;
+                std::cout << "  Avg bank usage:      " << std::fixed << std::setprecision(2) << avgUsageB << std::endl;
+                std::cout << "  Conflict ratio:      " << result.ratioB << std::endl;
+                
+                if(result.ratioB > 1.5)
+                {
+                    std::cout << "  Status:              WARNING - High conflict!" << std::endl;
+                }
+                else if(result.ratioB > 1.1)
+                {
+                    std::cout << "  Status:              Moderate conflict" << std::endl;
+                }
+                else
+                {
+                    std::cout << "  Status:              Good distribution" << std::endl;
+                }
+            }
+        }
+        else
+        {
+            std::cout << "Note: Could not identify LocalReadAddr registers." << std::endl;
+            std::cout << "      Check for vgprLocalReadAddrA/B comments in instructions." << std::endl;
+        }
+        
+        std::cout << "========================================\n" << std::endl;
+        
+        return result;
     }
 } // namespace Tensilelite

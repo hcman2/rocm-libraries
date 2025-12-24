@@ -56,7 +56,9 @@ namespace rocisa
         }
 
         if(option.getCycles)
+        {
             result.cycles = getCycles(kernel->body, option.numWaves);
+        }
 
         return std::move(result);
     }
