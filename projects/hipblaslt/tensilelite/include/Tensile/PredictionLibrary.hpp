@@ -94,8 +94,8 @@ namespace TensileLite
             problemInfo.swizzleTensorA = problem.swizzleTensorA();
             problemInfo.swizzleTensorB = problem.swizzleTensorB();
             problemInfo.dataType = problem.f32XdlMathOp() == rocisa::DataType::XFloat32 ?
-              origami::data_type_t::XFloat32 :
-              datatypeToAnalyticalDatatype(problem.computeInputType());
+              Tensilelite::DataType::TF32 :
+              datatypeToFormocastDatatype(problem.computeInputType());
 
             // GetSizeMapping
             auto                                sizeMapping = solution.getSizeMapping();
@@ -309,7 +309,7 @@ namespace TensileLite
 
             hip::HipAMDGPU const*      pAMDGPU = dynamic_cast<hip::HipAMDGPU const*>(&hardware);
             const origami::hardware_t& analytical_hardware = *(pAMDGPU->analyticalHardware);
-            formocast.setHardware(pAMDGPU->analyticalHardware);
+            formocast.setHardware(origamiArchToFormocastArch(analytical_hardware.arch));
 
             if(solutionmap_fc.size() == 0) {
                 throw std::runtime_error(

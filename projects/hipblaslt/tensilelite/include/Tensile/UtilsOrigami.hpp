@@ -28,6 +28,7 @@
 
 #include <origami/origami.hpp>
 #include <rocisa/include/enum.hpp>
+#include <formocast_predict.hpp>
 
 namespace TensileLite
 {
@@ -77,6 +78,71 @@ namespace TensileLite
 
         default:
             return origami::data_type_t::None;
+        }
+    }
+
+    // Convert rocisa::DataType to Tensilelite::DataType for Formocast
+    inline Tensilelite::DataType datatypeToFormocastDatatype(rocisa::DataType type)
+    {
+        switch(type)
+        {
+        case rocisa::DataType::Float:
+            return Tensilelite::DataType::Float;
+        case rocisa::DataType::Double:
+            return Tensilelite::DataType::Double;
+        case rocisa::DataType::Half:
+            return Tensilelite::DataType::Half;
+        case rocisa::DataType::Int32:
+            return Tensilelite::DataType::Int32;
+        case rocisa::DataType::BFloat16:
+            return Tensilelite::DataType::BFloat16;
+        case rocisa::DataType::Int8:
+            return Tensilelite::DataType::Int8;
+        case rocisa::DataType::XFloat32:
+            return Tensilelite::DataType::TF32;
+
+        default:
+            return Tensilelite::DataType::Unknown;
+        }
+    }
+    
+    // Convert origami::hardware_t::architecture_t to Tensilelite::HardwareArchitecture
+    inline Tensilelite::HardwareArchitecture origamiArchToFormocastArch(origami::hardware_t::architecture_t arch)
+    {
+        switch(arch)
+        {
+        case origami::hardware_t::architecture_t::gfx950:
+            return Tensilelite::HardwareArchitecture::gfx950;
+        case origami::hardware_t::architecture_t::gfx942:
+            return Tensilelite::HardwareArchitecture::gfx942;
+        case origami::hardware_t::architecture_t::gfx1201:
+            return Tensilelite::HardwareArchitecture::gfx1201;
+        default:
+            return Tensilelite::HardwareArchitecture::Unknown;
+        }
+    }
+
+    // Convert origami::data_type_t to Tensilelite::DataType
+    inline Tensilelite::DataType origamiDatatypeToFormocastDatatype(origami::data_type_t type)
+    {
+        switch(type)
+        {
+        case origami::data_type_t::Float:
+            return Tensilelite::DataType::Float;
+        case origami::data_type_t::Double:
+            return Tensilelite::DataType::Double;
+        case origami::data_type_t::Half:
+            return Tensilelite::DataType::Half;
+        case origami::data_type_t::Int32:
+            return Tensilelite::DataType::Int32;
+        case origami::data_type_t::BFloat16:
+            return Tensilelite::DataType::BFloat16;
+        case origami::data_type_t::Int8:
+            return Tensilelite::DataType::Int8;
+        case origami::data_type_t::XFloat32:
+            return Tensilelite::DataType::TF32;
+        default:
+            return Tensilelite::DataType::Unknown;
         }
     }
 } // namespace TensileLite

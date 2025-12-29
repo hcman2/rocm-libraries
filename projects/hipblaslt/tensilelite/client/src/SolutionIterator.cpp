@@ -29,6 +29,7 @@
 #include "ResultReporter.hpp"
 #include <Tensile/Debug.hpp>
 #include <Tensile/hip/HipHardware.hpp>
+#include <Tensile/UtilsOrigami.hpp>
 
 #include <formocast_predict.hpp>
 
@@ -177,14 +178,27 @@ namespace TensileLite
             problemInfo.swizzleTensorA = problem.swizzleTensorA();
             problemInfo.swizzleTensorB = problem.swizzleTensorB();
 
-            problemInfo.dataType = solution.getOrigamiDatatype(problem);
+            problemInfo.dataType = datatypeToFormocastDatatype(problem.computeInputType());
             return problemInfo;
         }
 
-        static std::shared_ptr<origami::hardware_t> getHardware(Hardware const&         hardware)
+        static Tensilelite::HardwareArchitecture getHardware(Hardware const& hardware)
         {
             hip::HipAMDGPU const* hipAMDGPU = dynamic_cast<hip::HipAMDGPU const*>(&hardware);
-            return hipAMDGPU->analyticalHardware;
+            auto origamiHardware = hipAMDGPU->analyticalHardware;
+
+            // Convert origami architecture to Tensilelite::HardwareArchitecture
+            switch(origamiHardware->arch)
+            {
+            case origami::hardware_t::architecture_t::gfx950:
+                return Tensilelite::HardwareArchitecture::gfx950;
+            case origami::hardware_t::architecture_t::gfx942:
+                return Tensilelite::HardwareArchitecture::gfx942;
+            case origami::hardware_t::architecture_t::gfx1201:
+                return Tensilelite::HardwareArchitecture::gfx1201;
+            default:
+                return Tensilelite::HardwareArchitecture::Unknown;
+            }
         }
 
         static Tensilelite::Formocast::SizeMapping getSizeMapping(ContractionSolution&    solution,

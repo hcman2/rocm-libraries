@@ -12,11 +12,30 @@
 #include <queue>
 #include <iostream>
 
-#include "origami/types.hpp"
-#include "origami/hardware.hpp"
-
 namespace Tensilelite
 {
+    // Hardware architecture enum
+    enum class HardwareArchitecture
+    {
+        gfx950,
+        gfx942,
+        gfx1201,
+        Unknown
+    };
+
+    // Data type enum
+    enum class DataType
+    {
+        Float,
+        Half,
+        BFloat16,
+        TF32,
+        Int8,
+        Int32,
+        Double,
+        Unknown
+    };
+
     class Formocast
     {
     public:
@@ -214,13 +233,13 @@ namespace Tensilelite
             bool transB;
             bool swizzleTensorA;
             bool swizzleTensorB;
-            origami::data_type_t dataType;
+            DataType dataType;
         };
 
         void setProblem(ProblemInfo p);
         void setSolution(SizeMapping sm);
-        void setHardware(std::shared_ptr<origami::hardware_t> hw);
-        HardwareConstants getHardwareConstants(std::shared_ptr<origami::hardware_t> hardware) const;
+        void setHardware(HardwareArchitecture arch);
+        HardwareConstants getHardwareConstants(const HardwareArchitecture arch) const;
         void calculateStorePerformance(double M,
                                        double N,
                                        double NumBatches,

@@ -183,20 +183,20 @@ namespace Tensilelite
     }
 
     Formocast::HardwareConstants
-    Formocast::getHardwareConstants(std::shared_ptr<origami::hardware_t> hardware) const
+    Formocast::getHardwareConstants(const HardwareArchitecture arch) const
     {
         HardwareConstants hw;
-        if(hardware->arch == origami::hardware_t::architecture_t::gfx950)
+        if(arch == HardwareArchitecture::gfx950)
         {
             unsigned char magic[184] = {0, 0, 0, 0, 0, 0, 224, 64, 0, 0, 0, 0, 0, 0, 80, 65, 0, 0, 0, 0, 0, 0, 176, 65, 0, 0, 0, 0, 0, 0, 96, 64, 0, 0, 0, 0, 0, 0, 96, 64, 0, 0, 0, 0, 0, 0, 80, 64, 0, 0, 0, 0, 0, 0, 96, 64, 0, 0, 0, 0, 0, 0, 80, 64, 0, 0, 0, 0, 0, 0, 80, 64, 0, 0, 0, 0, 0, 0, 8, 64, 0, 0, 0, 0, 0, 176, 157, 64, 189, 134, 242, 26, 202, 171, 152, 64, 189, 134, 242, 26, 202, 171, 168, 64, 0, 0, 0, 0, 0, 32, 156, 64, 0, 0, 0, 0, 0, 92, 162, 64, 205, 204, 204, 204, 204, 204, 4, 64, 205, 204, 204, 204, 204, 204, 0, 64, 0, 0, 0, 0, 0, 0, 176, 64, 0, 0, 0, 0, 0, 0, 112, 64, 0, 0, 0, 0, 0, 0, 80, 64, 205, 204, 204, 204, 204, 204, 236, 63, 0, 0, 0, 0, 0, 0, 232, 63, 8, 0, 0, 0, 0, 0, 0, 0};
             hw = archConstantMap(magic, 184);
         }
-        else if(hardware->arch == origami::hardware_t::architecture_t::gfx942)
+        else if(arch == HardwareArchitecture::gfx942)
         {
             unsigned char magic[184] = {0, 0, 0, 0, 0, 0, 224, 64, 0, 0, 0, 0, 0, 0, 80, 65, 0, 0, 0, 0, 0, 0, 176, 65, 0, 0, 0, 0, 0, 0, 96, 64, 0, 0, 0, 0, 0, 0, 96, 64, 0, 0, 0, 0, 0, 0, 80, 64, 0, 0, 0, 0, 0, 0, 96, 64, 0, 0, 0, 0, 0, 0, 80, 64, 0, 0, 0, 0, 0, 0, 80, 64, 0, 0, 0, 0, 0, 0, 8, 64, 0, 0, 0, 0, 0, 80, 148, 64, 118, 98, 39, 118, 98, 7, 162, 64, 118, 98, 39, 118, 98, 7, 178, 64, 0, 0, 0, 0, 0, 48, 145, 64, 1, 96, 132, 2, 0, 0, 0, 0, 154, 153, 153, 153, 153, 153, 5, 64, 64, 96, 132, 2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 160, 64, 0, 0, 0, 0, 0, 0, 115, 64, 0, 0, 0, 0, 0, 0, 80, 64, 205, 204, 204, 204, 204, 204, 236, 63, 143, 194, 245, 40, 92, 143, 226, 63, 8, 0, 0, 0, 0, 0, 0, 0};
             hw = archConstantMap(magic, 184);
         }
-        else if(hardware->arch == origami::hardware_t::architecture_t::gfx1201)
+        else if(arch == HardwareArchitecture::gfx1201)
         {
             unsigned char magic[184] = {0, 0, 0, 0, 0, 0, 224, 64, 0, 0, 0, 0, 0, 0, 96, 65, 0, 0, 0, 0, 0, 0, 144, 65, 0, 0, 0, 0, 0, 0, 96, 64, 0, 0, 0, 0, 0, 0, 96, 64, 0, 0, 0, 0, 0, 0, 96, 64, 0, 0, 0, 0, 0, 0, 96, 64, 0, 0, 0, 0, 0, 0, 80, 64, 0, 0, 0, 0, 0, 0, 96, 64, 0, 0, 0, 0, 0, 0, 228, 63, 0, 0, 0, 0, 0, 168, 147, 64, 20, 174, 71, 225, 122, 132, 78, 64, 104, 145, 237, 124, 63, 119, 123, 64, 0, 0, 0, 0, 0, 92, 162, 64, 0, 0, 0, 0, 0, 136, 163, 64, 51, 51, 51, 51, 51, 51, 45, 64, 205, 204, 204, 204, 204, 204, 44, 64, 0, 0, 0, 0, 0, 0, 160, 64, 0, 0, 0, 0, 0, 0, 80, 64, 0, 0, 0, 0, 0, 0, 64, 64, 205, 204, 204, 204, 204, 204, 236, 63, 0, 0, 0, 0, 0, 0, 232, 63, 1, 0, 0, 0, 0, 0, 0, 0};
             hw = archConstantMap(magic, 184);
@@ -207,10 +207,6 @@ namespace Tensilelite
                     "Attempting to retrieve hardware constants for unsupported architecture");
         }
 
-        hw.NumCUs               = hardware->N_CU;
-        hw.NumXCDs              = hardware->NUM_XCD;
-        hw.L2CacheCapacity      = hardware->L2_capacity;
-        //hw.boost_frequency      = hardware->compute_clock_ghz * 11750 / 11;    //FIXME: Use Formocast default frequency.
         return hw;
     }
 
@@ -648,7 +644,7 @@ namespace Tensilelite
         // Clock calculation
         // TODO: No need to check minMathClock if we guarantee that MathClocksUnrolledLoop is correct.
         double math_clk = sizeMapping.MathClocksUnrolledLoop;
-        //auto miLatency = hardware->get_mi_latency(sizeMapping.matrixInstruction[0], sizeMapping.matrixInstruction[1], sizeMapping.matrixInstruction[2], origami::data_type_t::BFloat16); //FIXME: Only for Bf16 now (TF32 is also BF16 in gfx950)
+        //auto miLatency = hardware.get_mi_latency(sizeMapping.matrixInstruction[0], sizeMapping.matrixInstruction[1], sizeMapping.matrixInstruction[2], DataType::BFloat16); //FIXME: Only for Bf16 now (TF32 is also BF16 in gfx950)
         //auto minMathClock = ((double)MT0 * MT1 * depthU / (sizeMapping.matrixInstruction[0] * sizeMapping.matrixInstruction[1] * sizeMapping.matrixInstruction[2]) * miLatency);
         //assert(math_clk >= minMathClock);
         //math_clk = std::max(math_clk, minMathClock); //FIXME: CMS kernel has incorrect MathClocksUnrolledLoop
@@ -684,7 +680,7 @@ namespace Tensilelite
             pp.hitRate = 0;
             return pp;
         }
-        if(problem.dataType == origami::data_type_t::BFloat16 || problem.dataType == origami::data_type_t::Half)
+        if(problem.dataType == DataType::BFloat16 || problem.dataType == DataType::Half)
         {
             //TODO: handle TF32 problem so that check the BPE here.
             if(problem.bpeA == 2 && problem.bpeB == 2)
@@ -963,7 +959,7 @@ namespace Tensilelite
         sizeMapping = sm;
     }
 
-    void Formocast::setHardware(std::shared_ptr<origami::hardware_t> hw)
+    void Formocast::setHardware(HardwareArchitecture hw)
     {
         hw_consts = getHardwareConstants(hw);
     }
