@@ -272,7 +272,7 @@ namespace Tensilelite
                                              bool isSwizzleA, bool isSwizzleB, uint32_t VWA, uint32_t VWB,
                                              bool transA, bool transB, double lda, double ldb,
                                              int NLCA, int NLCB, uint32_t threadnum,
-                                             uint32_t NumWave0, uint32_t NumWave1)
+                                             uint32_t NumWave0, uint32_t NumWave1, bool isL1FourBank)
         {
             L1CacheHitRate hr;
             double A_L1_hit = 1.0;
@@ -296,10 +296,12 @@ namespace Tensilelite
             {
                 //A is N
                 uint32_t L1Limit = L1CacheCapacity;
-                if((uint32_t)lda % 512 == 0)
-                    L1Limit /= 4;
-                else if((uint32_t)lda % 256 == 0)
-                    L1Limit /= 2;
+                if(isL1FourBank) {
+                    if((uint32_t)lda % 512 == 0)
+                        L1Limit /= 4;
+                    else if((uint32_t)lda % 256 == 0)
+                        L1Limit /= 2;
+                }
 
                 if(MT0 / NLCA * bpeA < L1CacheLineSize)
                 {
@@ -322,16 +324,19 @@ namespace Tensilelite
                 if(DTVA)
                     A_L1_hit /= NumWave0;
                 A_L1_hit = isL1BypassA ? 0: 1 - A_L1_hit;
+                std::cout<<"A_L1_hit = "<<A_L1_hit<<std::endl;
             }
 
             if(transB)
             {
                 //B is T
                 uint32_t L1Limit = L1CacheCapacity;
-                if((uint32_t)ldb % 512 == 0)
-                    L1Limit /= 4;
-                else if((uint32_t)ldb % 256 == 0)
-                    L1Limit /= 2;
+                if(isL1FourBank) {
+                    if((uint32_t)ldb % 512 == 0)
+                        L1Limit /= 4;
+                    else if((uint32_t)ldb % 256 == 0)
+                        L1Limit /= 2;
+                }
 
                 if(MT1 / NLCB * bpeB < L1CacheLineSize)
                 {
@@ -354,6 +359,7 @@ namespace Tensilelite
                 if(DTVB)
                     B_L1_hit /= NumWave1;
                 B_L1_hit = isL1BypassB ? 0: 1 - B_L1_hit;
+                std::cout<<"B_L1_hit = "<<B_L1_hit<<std::endl;
             }
             else
             {
@@ -922,30 +928,19 @@ namespace Tensilelite
                 else
                     break;
             }
-            // FIXME: check non-finished LR
-            // while(fifo.size() > numLR)
-            // {
-            //     int oldCycle = fifo.front();
-            //     finalCycle = std::max(finalCycle, oldCycle);
-            //     break;
-            // }
+            // check non-finished LR
+            while(fifo.size() > numLR)
+            {
+                int oldCycle = fifo.front();
+                finalCycle = std::max(finalCycle, oldCycle);
+                fifo.pop();
+            }
             return finalCycle;
         }
 
-        int checkLocalReadFIFOFull(int currentCycle, std::queue<int>& fifo, int bpRead, int numWaves, bool isStall)
+        int checkLocalReadFIFOFull(int currentCycle, std::queue<int>& fifo, int bpRead, int numWaves, int lrStallLatencyBuffer)
         {
             int finalCycle = currentCycle;
-            int lrStallLatencyBuffer;
-            if (!isStall){
-                lrStallLatencyBuffer = 1;
-            }
-            else if (bpRead == 16) {
-                lrStallLatencyBuffer = 10;
-            } else if (bpRead == 8) {
-                lrStallLatencyBuffer = 5;
-            } else {
-                lrStallLatencyBuffer = 2;
-            }
 
             if (fifo.size() < (16 / numWaves)) {
                 fifo.push(currentCycle);
@@ -955,12 +950,26 @@ namespace Tensilelite
                     fifo.pop();
                     fifo.push(currentCycle);
                 } else {
-                    finalCycle = oldCycle + lrStallLatencyBuffer;
+                    // stall happens
+                    finalCycle = std::max(currentCycle, fifo.back() + ((lrStallLatencyBuffer + 1) / (16 / numWaves)));
                     fifo.pop();
                     fifo.push(finalCycle);
                 }
             }
             return finalCycle;
+        }
+
+        /**
+         * @brief Calculate local read latency based on base latency, conflict multiplier, and bank conflicts
+         * @param baseLatency Base latency for local read operation (from HardwareConstants: LocalReadBaseLatencyB128/B64/B32)
+         * @param conflictMultiplier Multiplier applied to bank conflict penalty (from HardwareConstants: LocalReadConflictMultiplierB128/B64/B32)
+         * @param bankConflict Bank conflict factor (typically 1.0 for no conflict, >1.0 for conflicts)
+         * @return Calculated latency in cycles (baseLatency + conflict penalty based on bank conflicts)
+         */
+        int getLocalReadLatency(int baseLatency, int conflictMultiplier, double bankConflict)
+        {
+            int conflictPenalty = (bankConflict - 1) * conflictMultiplier;
+            return baseLatency + conflictPenalty;
         }
 
         void pushLocalRead(int currentCycle, std::queue<int>& fifo, int bpr, bool isGfx950)
