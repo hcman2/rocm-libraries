@@ -487,6 +487,32 @@ namespace rocisa
                 vgprState[dstReg] = src0 * src1;
             }
         }
+        // v_mul_hi_u32: dst = high 32 bits of (src0 * src1)
+        else if(auto vmulhiu = std::dynamic_pointer_cast<VMulHIU32>(instruction))
+        {
+            if(vmulhiu->srcs.size() >= 2)
+            {
+                int64_t src0 = getInstructionInputValue(vmulhiu->srcs[0], vgprState, sgprState);
+                int64_t src1 = getInstructionInputValue(vmulhiu->srcs[1], vgprState, sgprState);
+                // Cast to uint64_t for unsigned multiplication, then take high 32 bits
+                uint64_t result = static_cast<uint64_t>(static_cast<uint32_t>(src0)) *
+                                  static_cast<uint64_t>(static_cast<uint32_t>(src1));
+                vgprState[dstReg] = static_cast<int64_t>(result >> 32);
+            }
+        }
+        // v_mul_hi_i32: dst = high 32 bits of (src0 * src1) signed
+        else if(auto vmulhii = std::dynamic_pointer_cast<VMulHII32>(instruction))
+        {
+            if(vmulhii->srcs.size() >= 2)
+            {
+                int64_t src0 = getInstructionInputValue(vmulhii->srcs[0], vgprState, sgprState);
+                int64_t src1 = getInstructionInputValue(vmulhii->srcs[1], vgprState, sgprState);
+                // Cast to int64_t for signed multiplication, then take high 32 bits
+                int64_t result = static_cast<int64_t>(static_cast<int32_t>(src0)) *
+                                 static_cast<int64_t>(static_cast<int32_t>(src1));
+                vgprState[dstReg] = result >> 32;
+            }
+        }
         // v_lshlrev_b32 or v_lshl_b32: logical shift left
         else if(auto vlshl = std::dynamic_pointer_cast<VLShiftLeftB32>(instruction))
         {
@@ -498,7 +524,7 @@ namespace rocisa
                 vgprState[dstReg] = src << shiftAmount;
             }
         }
-        // v_lshrrev_b32 or v_lshr_b32: logical shift right
+        // v_lshrrev_b32 or v_lshr_b32: logical shift right (32-bit)
         else if(auto vlshr = std::dynamic_pointer_cast<VLShiftRightB32>(instruction))
         {
             if(vlshr->srcs.size() >= 2)
@@ -507,6 +533,28 @@ namespace rocisa
                 int64_t shiftAmount = getInstructionInputValue(vlshr->srcs[0], vgprState, sgprState);
                 int64_t src = getInstructionInputValue(vlshr->srcs[1], vgprState, sgprState);
                 vgprState[dstReg] = (uint64_t)src >> (uint64_t)shiftAmount;
+            }
+        }
+        // v_lshlrev_b64 or v_lshl_b64: logical shift left (64-bit)
+        else if(auto vlshl64 = std::dynamic_pointer_cast<VLShiftLeftB64>(instruction))
+        {
+            if(vlshl64->srcs.size() >= 2)
+            {
+                // VLShiftLeftB64 format: dst, shiftAmount, src
+                int64_t shiftAmount = getInstructionInputValue(vlshl64->srcs[0], vgprState, sgprState);
+                int64_t src = getInstructionInputValue(vlshl64->srcs[1], vgprState, sgprState);
+                vgprState[dstReg] = static_cast<int64_t>(static_cast<uint64_t>(src) << shiftAmount);
+            }
+        }
+        // v_lshrrev_b64 or v_lshr_b64: logical shift right (64-bit)
+        else if(auto vlshr64 = std::dynamic_pointer_cast<VLShiftRightB64>(instruction))
+        {
+            if(vlshr64->srcs.size() >= 2)
+            {
+                // VLShiftRightB64 format: dst, shiftAmount, src
+                int64_t shiftAmount = getInstructionInputValue(vlshr64->srcs[0], vgprState, sgprState);
+                int64_t src = getInstructionInputValue(vlshr64->srcs[1], vgprState, sgprState);
+                vgprState[dstReg] = static_cast<int64_t>(static_cast<uint64_t>(src) >> shiftAmount);
             }
         }
         // v_and_b32
@@ -569,6 +617,58 @@ namespace rocisa
                 int64_t src0 = getInstructionInputValue(vmov->srcs[0], vgprState, sgprState);
                 vgprState[dstReg] = src0;
             }
+        }
+        // v_lshl_add_u32 (actual instruction, CommonInstruction): dst = (src0 << shiftAmount) + src1
+        // srcs = {src0, shiftHex, src1} - note the order!
+        else if(auto vlshladd = std::dynamic_pointer_cast<_VLShiftLeftAddU32>(instruction))
+        {
+            if(vlshladd->srcs.size() >= 3)
+            {
+                int64_t src0 = getInstructionInputValue(vlshladd->srcs[0], vgprState, sgprState);
+                int64_t shiftAmount = getInstructionInputValue(vlshladd->srcs[1], vgprState, sgprState);
+                int64_t src1 = getInstructionInputValue(vlshladd->srcs[2], vgprState, sgprState);
+                vgprState[dstReg] = (src0 << shiftAmount) + src1;
+            }
+        }
+        // v_add_lshl_u32 (actual instruction, CommonInstruction): dst = (src0 + src1) << shiftAmount
+        // srcs = {src0, src1, shiftHex} - standard order
+        else if(auto vaddlshl = std::dynamic_pointer_cast<_VAddLShiftLeftU32>(instruction))
+        {
+            if(vaddlshl->srcs.size() >= 3)
+            {
+                int64_t src0 = getInstructionInputValue(vaddlshl->srcs[0], vgprState, sgprState);
+                int64_t src1 = getInstructionInputValue(vaddlshl->srcs[1], vgprState, sgprState);
+                int64_t shiftAmount = getInstructionInputValue(vaddlshl->srcs[2], vgprState, sgprState);
+                vgprState[dstReg] = (src0 + src1) << shiftAmount;
+            }
+        }
+        // v_lshl_add_u32 (CompositeInstruction wrapper): dst = (src0 << shiftAmount) + src1
+        // srcs = {src0, src1, shiftHex} based on constructor
+        else if(auto vlshladd = std::dynamic_pointer_cast<VLShiftLeftAddU32>(instruction))
+        {
+            if(vlshladd->srcs.size() >= 3)
+            {
+                int64_t src0 = getInstructionInputValue(vlshladd->srcs[0], vgprState, sgprState);
+                int64_t src1 = getInstructionInputValue(vlshladd->srcs[1], vgprState, sgprState);
+                int64_t shiftAmount = getInstructionInputValue(vlshladd->srcs[2], vgprState, sgprState);
+                vgprState[dstReg] = (src0 << shiftAmount) + src1;
+            }
+        }
+        // v_add_lshl_u32 (CompositeInstruction wrapper): dst = (src0 + src1) << shiftAmount
+        // srcs = {src0, src1, shiftHex} based on constructor
+        else if(auto vaddlshl = std::dynamic_pointer_cast<VAddLShiftLeftU32>(instruction))
+        {
+            if(vaddlshl->srcs.size() >= 3)
+            {
+                int64_t src0 = getInstructionInputValue(vaddlshl->srcs[0], vgprState, sgprState);
+                int64_t src1 = getInstructionInputValue(vaddlshl->srcs[1], vgprState, sgprState);
+                int64_t shiftAmount = getInstructionInputValue(vaddlshl->srcs[2], vgprState, sgprState);
+                vgprState[dstReg] = (src0 + src1) << shiftAmount;
+            }
+        }
+        else
+        {
+            throw std::runtime_error("Unsupported instruction: " + instruction->toString());
         }
     }
 
@@ -638,7 +738,8 @@ namespace rocisa
                 }
                 
                 // Parse and simulate VALU instructions for each thread
-                if(instStr.find("v_") != std::string::npos)
+                // Check if instruction starts with "v_" (VALU instructions)
+                if(instStr.size() >= 2 && instStr.compare(0, 2, "v_") == 0)
                 {
                     // Simulate for each thread using type-safe dynamic casting
                     for(int tid = 0; tid < NUM_THREADS_TO_SIMULATE; tid++)
