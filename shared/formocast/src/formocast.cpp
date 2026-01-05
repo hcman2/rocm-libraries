@@ -324,7 +324,6 @@ namespace Tensilelite
                 if(DTVA)
                     A_L1_hit /= NumWave0;
                 A_L1_hit = isL1BypassA ? 0: 1 - A_L1_hit;
-                std::cout<<"A_L1_hit = "<<A_L1_hit<<std::endl;
             }
 
             if(transB)
@@ -359,7 +358,6 @@ namespace Tensilelite
                 if(DTVB)
                     B_L1_hit /= NumWave1;
                 B_L1_hit = isL1BypassB ? 0: 1 - B_L1_hit;
-                std::cout<<"B_L1_hit = "<<B_L1_hit<<std::endl;
             }
             else
             {
