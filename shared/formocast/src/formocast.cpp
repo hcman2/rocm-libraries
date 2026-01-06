@@ -949,7 +949,9 @@ namespace Tensilelite
                     fifo.push(currentCycle);
                 } else {
                     // stall happens
-                    finalCycle = std::max(currentCycle, fifo.back() + ((lrStallLatencyBuffer + 1) / (16 / numWaves)));
+                    int wavesPerFifo = 16 / numWaves;
+                    int stallCycles = ceilDivide(lrStallLatencyBuffer + 1, wavesPerFifo);
+                    finalCycle = std::max(currentCycle, fifo.back() + stallCycles);
                     fifo.pop();
                     fifo.push(finalCycle);
                 }
