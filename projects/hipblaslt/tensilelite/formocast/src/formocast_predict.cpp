@@ -67,7 +67,7 @@ namespace Tensilelite
     double Formocast::getLoopOverall(const MemoryAccessCosts& mem, double math, uint32_t loopCnt, double pgr) const
     {
 #undef EXPERIMENTAL
-#define EXPERIMENTAL 0
+#define EXPERIMENTAL 1
 #if EXPERIMENTAL
         double loop_overall;
 
@@ -186,7 +186,7 @@ namespace Tensilelite
         store      = store_non_edge_overall;
         store_edge = store_edge_overall;
 #undef EXPERIMENTAL
-#define EXPERIMENTAL 0
+#define EXPERIMENTAL 1
 #if EXPERIMENTAL
         store = (GWVWD==1) ? store*2: store;
         store = (GWVWD==2) ? store*1.5: store;
@@ -308,7 +308,7 @@ namespace Tensilelite
         double B_hbm_clk = B_hbm_req * 128 / HBMBandWidthPerCU;
 
 #undef EXPERIMENTAL
-#define EXPERIMENTAL 0
+#define EXPERIMENTAL 1
 #if EXPERIMENTAL
         A_L1_clk = A_L1_req * hr.A_L1_hit * 64 / hw.L1BusWidthPerCU;
         A_L3_clk = A_L3_req * 64 / L3BandWidthPerCU;
@@ -358,7 +358,7 @@ namespace Tensilelite
     double Formocast::resolveOccupancy(const HardwareConstants& hw, double perf, double prefetch, double mathCost, double storeCost, uint32_t num_tiles, uint32_t CUOccupancy) const
     {
 #undef EXPERIMENTAL
-#define EXPERIMENTAL 0
+#define EXPERIMENTAL 1
 #if EXPERIMENTAL
         if ((num_tiles > 1)  && CUOccupancy >= 2)
         {
@@ -396,7 +396,7 @@ namespace Tensilelite
         else
         {
 #undef EXPERIMENTAL
-#define EXPERIMENTAL 0
+#define EXPERIMENTAL 1
 #if EXPERIMENTAL
             perf *= num_tiles;
             perf += 1.7*(num_tiles-1);
@@ -627,7 +627,7 @@ namespace Tensilelite
         uint32_t loopCnt = K_AfterGSU / depthU;
         uint32_t K_tail = K_AfterGSU - (loopCnt * depthU);
 #undef EXPERIMENTAL
-#define EXPERIMENTAL 0
+#define EXPERIMENTAL 1
 #if EXPERIMENTAL
         PGR = (std::floor(K_AfterGSU/depthU > 1)) ? sizeMapping.PrefetchGlobalRead : int(K_AfterGSU/depthU);
         int      PLR = (std::floor(K_AfterGSU/sizeMapping.LocalSplitU/depthU) < 1) ? 0: 1;//sizeMapping.PrefetchLocalRead;
@@ -692,7 +692,7 @@ namespace Tensilelite
         // 9. Calculate Memory Access and Math Costs
         double L2BandWidthPerCU     = hw_consts.L2ReadArbEff * 128 * 16 / WGs_per_tile_XCD; //90% eff
 #undef EXPERIMENTAL
-#define EXPERIMENTAL 0
+#define EXPERIMENTAL 1
 #if EXPERIMENTAL
         if (L2BandWidthPerCU > hw_consts.L2ReadArbEff * 128 * 16 / (hw_consts.NumCUs/hw_consts.NumXCDs))
             L2BandWidthPerCU = hw_consts.L2ReadArbEff * 128 * 16 / (hw_consts.NumCUs/hw_consts.NumXCDs);
@@ -759,7 +759,7 @@ namespace Tensilelite
         double loop_overall = getLoopOverall(mem_costs, math_overall, loopCnt, PGR);
 
 #undef EXPERIMENTAL
-#define EXPERIMENTAL 0
+#define EXPERIMENTAL 1
 #if EXPERIMENTAL
         loop_overall += loopCnt*0.2;
 #else
@@ -778,7 +778,7 @@ namespace Tensilelite
             perf = preLoopCost + loop_overall + store;
         }
 #undef EXPERIMENTAL
-#define EXPERIMENTAL 0
+#define EXPERIMENTAL 1
 #if EXPERIMENTAL
         else { store = std::max(store_edge, store); perf = prefetch + loop_overall + store;}
 #else
@@ -790,7 +790,7 @@ namespace Tensilelite
         {
             // FIXME: need to add new opt.
 #undef EXPERIMENTAL
-#define EXPERIMENTAL 0
+#define EXPERIMENTAL 1
 #if EXPERIMENTAL
             tail_overall = (mem_costs.mem_overall*K_tail/depthU + math_overall) + prefetch*2;
 #else
@@ -810,7 +810,7 @@ namespace Tensilelite
 
 
 #undef EXPERIMENTAL
-#define EXPERIMENTAL 0
+#define EXPERIMENTAL 1
 #if EXPERIMENTAL
         if (int(M) % int(MT0) != 0)
             // perf += store_edge;

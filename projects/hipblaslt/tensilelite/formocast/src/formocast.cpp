@@ -187,7 +187,7 @@ namespace Tensilelite
             double WGs = std::min(NumCUs, double(numWGs)) / GlobalSplitU;
             double L2BandWidthPerCU_local = L2ReadArbEff * 128 * 16 / WGs; //90% eff
             double atomic_overhead = GlobalSplitU * 0.1;
-#define EXPERIMENTAL 0
+#define EXPERIMENTAL 1
 #if EXPERIMENTAL
             double GSU_L1_req      = (bpeIn * (GlobalSplitU - 1) * MT0 * MT1 * bpeIn) / 64;
             if (GlobalSplitU > 2)
