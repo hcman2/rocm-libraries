@@ -27,6 +27,7 @@
 #pragma once
 
 #include <origami/origami.hpp>
+#include <origami/formocast_predict.hpp>
 #include <rocisa/include/enum.hpp>
 #include <formocast_simulator.hpp>
 
@@ -145,4 +146,97 @@ namespace TensileLite
             return Tensilelite::DataType::Unknown;
         }
     }
+
+    // Convert Tensilelite::DataType to origami::data_type_t
+    inline origami::data_type_t formocastDatatypeToOrigamiDatatype(Tensilelite::DataType type)
+    {
+        switch(type)
+        {
+        case Tensilelite::DataType::Float:
+            return origami::data_type_t::Float;
+        case Tensilelite::DataType::Double:
+            return origami::data_type_t::Double;
+        case Tensilelite::DataType::Half:
+            return origami::data_type_t::Half;
+        case Tensilelite::DataType::Int32:
+            return origami::data_type_t::Int32;
+        case Tensilelite::DataType::BFloat16:
+            return origami::data_type_t::BFloat16;
+        case Tensilelite::DataType::Int8:
+            return origami::data_type_t::Int8;
+        case Tensilelite::DataType::TF32:
+            return origami::data_type_t::XFloat32;
+        default:
+            return origami::data_type_t::None;
+        }
+    }
+
+    // Convert Formocast::IntermediatePerformanceMetrics to origami::IntermediatePerformanceMetrics
+    inline origami::IntermediatePerformanceMetrics convertIntermediateMetrics(
+        const Tensilelite::Formocast::IntermediatePerformanceMetrics& src)
+    {
+        origami::IntermediatePerformanceMetrics dst;
+        // Cache hit rates
+        dst.tile0_L1_hit = src.cache_hits.A_L1_hit;
+        dst.tile1_L1_hit = src.cache_hits.B_L1_hit;
+        dst.tile0_L2_hit = src.cache_hits.A_L2_hit;
+        dst.tile1_L2_hit = src.cache_hits.B_L2_hit;
+        dst.tile0_L3_hit = src.cache_hits.A_L3_hit;
+        dst.tile1_L3_hit = src.cache_hits.B_L3_hit;
+        dst.totalL2HitRate = src.cache_hits.totalL2HitRate;
+        dst.totalL3HitRate = src.cache_hits.totalL3HitRate;
+        // Other metrics
+        dst.output_write_cost = src.output_write_cost;
+        dst.output_write_cost_edge = src.output_write_cost_edge;
+        dst.split_accumulation_overhead = src.split_accumulation_overhead;
+        dst.compute_cycles = src.compute_cycles;
+        dst.local_split_overhead = src.local_split_overhead;
+        dst.tile0_l1_request = src.tile0_l1_request;
+        dst.tile0_l2_request = src.tile0_l2_request;
+        dst.tile0_l3_request = src.tile0_l3_request;
+        dst.tile0_mem_request = src.tile0_mem_request;
+        dst.tile1_l1_request = src.tile1_l1_request;
+        dst.tile1_l2_request = src.tile1_l2_request;
+        dst.tile1_l3_request = src.tile1_l3_request;
+        dst.tile1_mem_request = src.tile1_mem_request;
+        dst.prefetch_cost = src.prefetch_cost;
+        dst.startup_cost = src.startup_cost;
+        return dst;
+    }
+
+    // Convert Formocast::ProblemInfo to origami::ProblemInfo
+    inline origami::ProblemInfo convertProblemInfo(const Tensilelite::Formocast::ProblemInfo& src)
+    {
+        origami::ProblemInfo dst;
+        dst.M = src.M;
+        dst.N = src.N;
+        dst.NumBatches = src.NumBatches;
+        dst.K = src.K;
+        dst.bpeA = src.bpeA;
+        dst.bpeB = src.bpeB;
+        dst.bpeD = src.bpeD;
+        dst.bpeCompute = src.bpeCompute;
+        dst.transA = src.transA;
+        dst.transB = src.transB;
+        dst.swizzleTensorA = src.swizzleTensorA;
+        dst.swizzleTensorB = src.swizzleTensorB;
+        dst.dataType = formocastDatatypeToOrigamiDatatype(src.dataType);
+        return dst;
+    }
+
+    // Convert Formocast::SizeMapping to origami::ConfigMapping
+    inline origami::ConfigMapping convertSizeMapping(const Tensilelite::Formocast::SizeMapping& src)
+    {
+        origami::ConfigMapping dst;
+        dst.macroTile.x = src.macroTile.x;
+        dst.macroTile.y = src.macroTile.y;
+        dst.workGroupMapping = src.workGroupMapping;
+        dst.CUOccupancy = src.CUOccupancy;
+        dst.depthU = src.depthU;
+        dst.globalSplitU = src.globalSplitU;
+        dst.gwvwD = src.gwvwD;
+        dst.PrefetchGlobalRead = src.PrefetchGlobalRead;
+        return dst;
+    }
+
 } // namespace TensileLite
