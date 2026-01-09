@@ -63,6 +63,6 @@ if(HIPBLASLT_BUNDLE_PYTHON_DEPS)
         "${CMAKE_CURRENT_SOURCE_DIR}/rocisa/include"
         "${CMAKE_CURRENT_SOURCE_DIR}/../formocast/include"
     )
-    target_link_libraries(rocisa PUBLIC roc::formocast)
+    target_link_libraries(rocisa PUBLIC formocast::formocast)
     set_target_properties(rocisa PROPERTIES LIBRARY_OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/lib")
 endif()
