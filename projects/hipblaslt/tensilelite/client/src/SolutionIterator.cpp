@@ -31,7 +31,7 @@
 #include <Tensile/hip/HipHardware.hpp>
 #include <Tensile/UtilsOrigami.hpp>
 
-#include <formocast_predict.hpp>
+#include <formocast_simulator.hpp>
 
 namespace TensileLite
 {

@@ -39,7 +39,7 @@
 #include <unordered_map>
 #include <climits>
 
-#include "formocast_predict.hpp"
+#include "formocast_simulator.hpp"
 
 using MacroArguments = std::vector<std::tuple<std::string, std::string>>;
 using MacroEntity = std::tuple<std::shared_ptr<rocisa::Macro>, std::shared_ptr<MacroArguments>>;

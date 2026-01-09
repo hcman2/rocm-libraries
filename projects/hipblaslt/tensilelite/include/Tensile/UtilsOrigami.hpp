@@ -28,7 +28,7 @@
 
 #include <origami/origami.hpp>
 #include <rocisa/include/enum.hpp>
-#include <formocast_predict.hpp>
+#include <formocast_simulator.hpp>
 
 namespace TensileLite
 {

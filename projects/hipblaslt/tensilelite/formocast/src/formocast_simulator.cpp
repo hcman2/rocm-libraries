@@ -24,7 +24,7 @@
  *
  *******************************************************************************/
 
-#include <formocast_predict.hpp>
+#include <formocast_simulator.hpp>
 #include <formocast_utils.hpp>
 #include <formocast.hpp>
 
