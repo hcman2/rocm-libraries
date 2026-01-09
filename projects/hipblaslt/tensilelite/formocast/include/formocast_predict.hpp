@@ -228,31 +228,33 @@ namespace Tensilelite
         // Structure to hold intermediate calculation results
         struct IntermediatePerformanceMetrics
         {
-            // Cache hit rates (contains A_L1_hit, B_L1_hit, A_L2_hit, B_L2_hit, A_L3_hit, B_L3_hit, totalL2HitRate, totalL3HitRate)
+            // Cache hit rates (contains operand0/1 hit rates for L1/L2/L3)
             CacheHitRates cache_hits;
             
-            // Store performance
-            double store;
-            double store_edge;
+            // Output write performance
+            double output_write_cost;
+            double output_write_cost_edge;
             
             // Overall overheads
-            double gsu_overall;
-            double math_clk;
-            double lsu_overall;
+            double split_accumulation_overhead;
+            double compute_cycles;
+            double local_split_overhead;
             
-            // Memory request counts
-            double A_L1_req;
-            double A_L2_req;
-            double A_L3_req;
-            double B_L1_req;
-            double B_L2_req;
-            double B_L3_req;
-            double A_hbm_req;
-            double B_hbm_req;
+            // Memory request counts per cache level for tile 0 (A)
+            double tile0_l1_request;
+            double tile0_l2_request;
+            double tile0_l3_request;
+            double tile0_mem_request;
             
-            // Prefetch and initial cost
-            double prefetch;
-            double initialCost;
+            // Memory request counts per cache level for tile 1 (B)
+            double tile1_l1_request;
+            double tile1_l2_request;
+            double tile1_l3_request;
+            double tile1_mem_request;
+            
+            // Prefetch and startup cost
+            double prefetch_cost;
+            double startup_cost;
         };
 
         void setProblem(ProblemInfo p);

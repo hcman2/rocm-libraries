@@ -825,7 +825,7 @@ namespace Tensilelite
 
         perfInfo.memory = mem_costs;
         perfInfo.math = math_overall;
-        perfInfo.svw = 1;
+        perfInfo.svw = GWVWD;
         perfInfo.perf = perf;
         perfInfo.preloop = preLoopCost;
         perfInfo.loop = loop_overall;
@@ -1009,8 +1009,8 @@ namespace Tensilelite
         // 5. Calculate Store Performance (D matrix writes)
         double store, store_edge;
         calculateStorePerformance(M, N, NumBatches, MT0, MT1, GWVWD, bpeD, hw_consts, WGs_per_tile, WGs_per_tile_XCD, store, store_edge);
-        metrics.store = store;
-        metrics.store_edge = store_edge;
+        metrics.output_write_cost = store;
+        metrics.output_write_cost_edge = store_edge;
 
         // 6. Calculate GSU Overhead
         double storeGSU = store * 2; //FIXME: incorrect
@@ -1018,11 +1018,11 @@ namespace Tensilelite
         double gsu_overall = calculateGSUOverhead(M, N, K, NumBatches, GlobalSplitU, gsuMethod,
                                                   problem, hw_consts, WGs_per_tile, WGs_per_tile_XCD,
                                                   MT0, MT1, numberWGs, vgprUsageCheck, storeGSU);
-        metrics.gsu_overall = gsu_overall;
+        metrics.split_accumulation_overhead = gsu_overall;
 
         // 7. Calculate LSU Overhead
         double lsu_overall = calculateLSUOverhead(MT0, MT1, LSU, GWVWD, NumThreads, problem, hw_consts);
-        metrics.lsu_overall = lsu_overall;
+        metrics.local_split_overhead = lsu_overall;
 
         // 8. Calculate Memory Access and Math Costs
         double L2BandWidthPerCU     = hw_consts.L2ReadArbEff * 128 * 16 / WGs_per_tile_XCD; //90% eff
@@ -1065,14 +1065,14 @@ namespace Tensilelite
         double B_L3_req = B_L2_req * (1 - cache_hits.B_L2_hit) / tcc_ea0_coalscedB;
         double B_hbm_req = B_L3_req * (1 - cache_hits.B_L3_hit);
 
-        metrics.A_L1_req = A_L1_req;
-        metrics.A_L2_req = A_L2_req;
-        metrics.A_L3_req = A_L3_req;
-        metrics.B_L1_req = B_L1_req;
-        metrics.B_L2_req = B_L2_req;
-        metrics.B_L3_req = B_L3_req;
-        metrics.A_hbm_req = A_hbm_req;
-        metrics.B_hbm_req = B_hbm_req;
+        metrics.tile0_l1_request = A_L1_req;
+        metrics.tile0_l2_request = A_L2_req;
+        metrics.tile0_l3_request = A_L3_req;
+        metrics.tile0_mem_request = A_hbm_req;
+        metrics.tile1_l1_request = B_L1_req;
+        metrics.tile1_l2_request = B_L2_req;
+        metrics.tile1_l3_request = B_L3_req;
+        metrics.tile1_mem_request = B_hbm_req;
 
         // 9. Calculate Prefetch Performance
         int numAccPerWave = MT0 * MT1 / waveNum / hw_consts.wavefrontSize;
@@ -1086,11 +1086,11 @@ namespace Tensilelite
                                                  MT1,
                                                  hw_consts.math_frequency,
                                                  numAccPerWave);
-        metrics.prefetch = prefetch;
-        metrics.initialCost = hw_consts.initialCost;
+        metrics.prefetch_cost = prefetch;
+        metrics.startup_cost = hw_consts.initialCost;
 
-        // Store cache hits and math_clk for final calculation
-        metrics.math_clk = math_clk;
+        // Store cache hits and compute cycles for final calculation
+        metrics.compute_cycles = math_clk;
         metrics.cache_hits = cache_hits;
 
         return metrics;
@@ -1145,8 +1145,8 @@ namespace Tensilelite
         double L3BandWidthPerCU = hw_consts.L3BandWidth / WGs_per_tile;
         double HBMBandWidthPerCU = hw_consts.hbmBandWidth / WGs_per_tile;
 
-        double store = metrics.store;
-        double store_edge = metrics.store_edge;
+        double store = metrics.output_write_cost;
+        double store_edge = metrics.output_write_cost_edge;
 
         // 1. Calculate Memory Access Costs using intermediate metrics
         MemoryAccessCosts mem_costs = calculateMemoryAccessCosts(
@@ -1155,12 +1155,12 @@ namespace Tensilelite
             metrics.cache_hits,
             L2BandWidthPerCU, L3BandWidthPerCU, HBMBandWidthPerCU,
             isSwizzleA, isSwizzleB,
-            metrics.A_L1_req, metrics.B_L1_req,
-            metrics.A_L2_req, metrics.A_L3_req, metrics.A_hbm_req,
-            metrics.B_L2_req, metrics.B_L3_req, metrics.B_hbm_req);
+            metrics.tile0_l1_request, metrics.tile1_l1_request,
+            metrics.tile0_l2_request, metrics.tile0_l3_request, metrics.tile0_mem_request,
+            metrics.tile1_l2_request, metrics.tile1_l3_request, metrics.tile1_mem_request);
 
         // 2. Calculate loop Performance
-        double math_overall = metrics.math_clk / hw_consts.math_frequency;
+        double math_overall = metrics.compute_cycles / hw_consts.math_frequency;
         double loop_overall = getLoopOverall(mem_costs, math_overall, loopCnt, PGR);
 
 #undef EXPERIMENTAL
@@ -1176,14 +1176,14 @@ namespace Tensilelite
 #undef EXPERIMENTAL
 #define EXPERIMENTAL 1
 #if EXPERIMENTAL
-            tail_overall = (mem_costs.mem_overall * K_tail / depthU + math_overall) + metrics.prefetch * 2;
+            tail_overall = (mem_costs.mem_overall * K_tail / depthU + math_overall) + metrics.prefetch_cost * 2;
 #else
             tail_overall = (mem_costs.mem_hbm + math_overall);
 #endif
         }
 
         // 4. Calculate preLoopCost
-        double preLoopCost = metrics.initialCost + metrics.prefetch;
+        double preLoopCost = metrics.startup_cost + metrics.prefetch_cost;
 
         // 5. Aggregate Performance: pre-loop + unrolled-loop + post-loop
         double perf = preLoopCost + loop_overall + store;
@@ -1201,20 +1201,20 @@ namespace Tensilelite
 #undef EXPERIMENTAL
 #define EXPERIMENTAL 1
 #if EXPERIMENTAL
-        else { store = std::max(store_edge, store); perf = metrics.prefetch + loop_overall + store;}
+        else { store = std::max(store_edge, store); perf = metrics.prefetch_cost + loop_overall + store;}
 #endif
 
         // 6. Add tail loop cost
         perf += tail_overall;
 
         // 7. Add LSU Reduction Part
-        perf += metrics.lsu_overall;
+        perf += metrics.local_split_overhead;
 
         // 8. Apply CU Occupancy
-        perf = resolveOccupancy(hw_consts, perf, metrics.prefetch, loop_overall + tail_overall, store, num_tiles, CUOccupancy);
+        perf = resolveOccupancy(hw_consts, perf, metrics.prefetch_cost, loop_overall + tail_overall, store, num_tiles, CUOccupancy);
 
         // 9. Add GSU Reduction Part
-        perf += metrics.gsu_overall;
+        perf += metrics.split_accumulation_overhead;
 
 #undef EXPERIMENTAL
 #define EXPERIMENTAL 1
@@ -1229,14 +1229,14 @@ namespace Tensilelite
         // Update perfInfo (mutable member)
         perfInfo.memory = mem_costs;
         perfInfo.math = math_overall;
-        perfInfo.svw = 1;              //FIXME: Need to determine whether to use it?
+        perfInfo.svw = GWVWD;
         perfInfo.perf = perf;
         perfInfo.preloop = preLoopCost;
         perfInfo.loop = loop_overall;
         perfInfo.tail = tail_overall;
         perfInfo.store = store;
-        perfInfo.gsu = metrics.gsu_overall;
-        perfInfo.lsu = metrics.lsu_overall;
+        perfInfo.gsu = metrics.split_accumulation_overhead;
+        perfInfo.lsu = metrics.local_split_overhead;
         perfInfo.mt0 = MT0;
         perfInfo.mt1 = MT1;
         perfInfo.du = depthU;
