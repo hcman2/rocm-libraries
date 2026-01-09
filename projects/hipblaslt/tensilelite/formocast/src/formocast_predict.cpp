@@ -40,8 +40,7 @@ namespace Tensilelite
 {
     using Utils::ceilDivide;
 
-    static double getPrefetchPerformance(int      pgr,
-                                         int      grvwa,
+    static double getPrefetchPerformance(int      grvwa,
                                          int      grvwb,
                                          int      bpeA,
                                          int      bpeB,
@@ -50,50 +49,9 @@ namespace Tensilelite
                                          double   MT0,
                                          double   MT1,
                                          double   math_frequency,
-                                         double   mem_latency,
                                          int      numAccPerWave)
     {
         const double others = 220 + numAccPerWave * 4;
-        int          stallA = 4;
-        int          lwA    = 8;
-        switch(grvwa * bpeA)
-        {
-        case 16:
-            stallA = 25;
-            lwA    = 20;
-            break;
-        case 8:
-            stallA = 18;
-            lwA    = 12;
-            break;
-        case 4:
-            stallA = 8;
-            lwA    = 8;
-            break;
-        default:
-            stallA = 4;
-            lwA    = 8;
-        }
-        int stallB = 4;
-        int lwB    = 1;
-        switch(grvwb * bpeB)
-        {
-        case 16:
-            stallB = 25;
-            lwB    = 20;
-            break;
-        case 8:
-            stallB = 18;
-            lwB    = 12;
-            break;
-        case 4:
-            stallB = 8;
-            lwB    = 8;
-            break;
-        default:
-            stallB = 4;
-            lwB    = 8;
-        }
 
         int numGRA = MT0 * depthU * bpeA / (waveNum * 64) / grvwa;
         int numGRB = MT1 * depthU * bpeB / (waveNum * 64) / grvwb;
@@ -784,14 +742,7 @@ namespace Tensilelite
 
         // 10. Calculate Prefetch Performance
         int numAccPerWave = MT0 * MT1 / waveNum / hw_consts.wavefrontSize;
-#define USE_OLD_PREFETCH 1
-#if USE_OLD_PREFETCH
-        double prefetch_mem = mem_costs.mem_overall;
-#else
-        double prefetch_mem = mem_costs.mem_hbm;
-#endif
-        double prefetch      = getPrefetchPerformance(PGR,
-                                                 GRVWA,
+        double prefetch      = getPrefetchPerformance(GRVWA,
                                                  GRVWB,
                                                  bpeA,
                                                  bpeB,
@@ -800,7 +751,6 @@ namespace Tensilelite
                                                  MT0,
                                                  MT1,
                                                  hw_consts.math_frequency,
-                                                 prefetch_mem,
                                                  numAccPerWave);
         double preLoopCost = hw_consts.initialCost + prefetch;
 
