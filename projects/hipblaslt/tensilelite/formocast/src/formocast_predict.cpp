@@ -101,53 +101,7 @@ namespace Tensilelite
         //issue 2nd prefetch
         double grCycles2 = numGRA * 4 / waveNum;
         grCycles2 += numGRB * 4 / waveNum;
-
-        if(pgr >= 2)
-        {
-            double grCycles = 0.0;
-            if(numGRA + numGRB > 16)
-            {
-                grCycles     = 16 * 4;
-                auto extraGR = numGRA + numGRB - 16;
-                if(numGRA > 16)
-                {
-                    //issue GRA
-                    grCycles += stallA * (numGRA - 16);
-                }
-                //issue GRB
-                if(numGRB <= 16)
-                {
-                    grCycles += stallA * numGRB;
-                }
-                else
-                {
-                    grCycles += stallA * 16;
-                    grCycles += stallB * (16 - numGRB);
-                }
-            }
-            else
-            {
-                grCycles = (numGRA + numGRB) * 4 * (waveNum / 2);
-            }
-
-            //issue local write
-            double lwCycles = numGRA * lwA / waveNum;
-            lwCycles += numGRB * lwB / waveNum;
-#undef EXPERIMENTAL
-#define EXPERIMENTAL 0
-#if EXPERIMENTAL
-            double perf = std::max((grCycles2 + others + 1024) / math_frequency, mem_latency)
-                          + (lwCycles*1 + grCycles2 + 1024) / math_frequency;
-            //std::cout<<"grCycles, others, math_frequency="<<grCycles<<","<<others<<","<<math_frequency<<""<<std::endl;
-        }
-        return (grCycles2 + others + 1024*depthU/64) / math_frequency;
-#else
-            double perf = std::max((grCycles + others) / math_frequency, mem_latency)
-                          + (lwCycles + grCycles2) / math_frequency;
-            //std::cout<<"grCycles, others, math_frequency="<<grCycles<<","<<others<<","<<math_frequency<<""<<std::endl;
-        }
-        return (grCycles2 + others) / math_frequency;
-#endif                          
+        return (grCycles2 + others + 1024*depthU/64) / math_frequency;                       
     }
 
 
@@ -366,48 +320,16 @@ namespace Tensilelite
     }
 
     Formocast::MemoryAccessCosts
-    Formocast::calculateMemoryAccessCosts(double MT0, double MT1, uint32_t depthU,
-                                   uint32_t bpeA, uint32_t bpeB,
+    Formocast::calculateMemoryAccessCosts(double MT0, double MT1,
                                    const HardwareConstants& hw,
-                                   uint32_t GRVWA, uint32_t GRVWB,
-                                   bool DTVA, bool DTVB,
                                    const CacheHitRates& hr,
                                    double L2BandWidthPerCU, double L3BandWidthPerCU, double HBMBandWidthPerCU,
-                                   uint32_t VWA, uint32_t VWB,
                                    bool isSwizzleA, bool isSwizzleB,
-                                   bool trA, bool trB,
-                                   uint32_t numWave0, uint32_t numWave1,
-                                   int NLCA, int NLCB) const
+                                   double A_L1_req, double B_L1_req,
+                                   double A_L2_req, double A_L3_req, double A_hbm_req,
+                                   double B_L2_req, double B_L3_req, double B_hbm_req) const
     {
         MemoryAccessCosts mem;
-        double tcc_ea0_coalscedA;
-        double tcc_ea0_coalscedB;
-        double A_L1_req = Simulator::getLoadRequest(MT0, depthU, hw.L1CacheLineSize, 
-                                         GRVWA, bpeA, DTVA, 
-                                         trA,           // isTransposed
-                                         isSwizzleA,    // isSwizzled (for transposed case)
-                                         VWA,           // VW (for transposed case)
-                                         hw.L1BusWidthPerCU,  // L1BusWidthPerCU (for non-transposed case)
-                                         NLCA,          // NumLoadsCoalesced (for non-transposed case)
-                                         numWave1,      // numWaveX (for non-transposed case)
-                                         tcc_ea0_coalscedA);
-
-        double B_L1_req = Simulator::getLoadRequest(MT1, depthU, hw.L1CacheLineSize, 
-                                         GRVWB, bpeB, DTVB, 
-                                         !trB,          // isTransposed (B is transposed when trB=false)
-                                         isSwizzleB,    // isSwizzled (for transposed case)
-                                         VWB,           // VW (for transposed case)
-                                         hw.L1BusWidthPerCU,  // L1BusWidthPerCU (for non-transposed case)
-                                         NLCB,          // NumLoadsCoalesced (for non-transposed case)
-                                         numWave0,      // numWaveX (for non-transposed case)
-                                         tcc_ea0_coalscedB);
-
-        double A_L2_req = A_L1_req * (1 - hr.A_L1_hit) / 2 * tcc_ea0_coalscedA;
-        double A_L3_req = A_L2_req * (1 - hr.A_L2_hit) / tcc_ea0_coalscedA;
-        double A_hbm_req = A_L3_req * (1 - hr.A_L3_hit);
-        double B_L2_req = B_L1_req * (1 - hr.B_L1_hit) / 2 * tcc_ea0_coalscedB;
-        double B_L3_req = B_L2_req * (1 - hr.B_L2_hit) / tcc_ea0_coalscedB;
-        double B_hbm_req = B_L3_req * (1 - hr.B_L3_hit);
 
         double A_L1_clk = A_L1_req * 64 / hw.L1BusWidthPerCU;
         double A_L2_clk;
@@ -820,18 +742,45 @@ namespace Tensilelite
 #endif
         double L3BandWidthPerCU     = hw_consts.L3BandWidth / WGs_per_tile;
         double HBMBandWidthPerCU    = hw_consts.hbmBandWidth / WGs_per_tile;
-        MemoryAccessCosts mem_costs = calculateMemoryAccessCosts(std::min(MT0, M), std::min(MT1, N), depthU,
-                                                                bpeA, bpeB,
+
+        // Calculate load requests and memory access costs before calling calculateMemoryAccessCosts
+        double tcc_ea0_coalscedA;
+        double tcc_ea0_coalscedB;
+        double A_L1_req = Simulator::getLoadRequest(std::min(MT0, M), depthU, hw_consts.L1CacheLineSize, 
+                                         GRVWA, bpeA, DTVA, 
+                                         transA,           // isTransposed
+                                         isSwizzleA,    // isSwizzled (for transposed case)
+                                         VWA,           // VW (for transposed case)
+                                         hw_consts.L1BusWidthPerCU,  // L1BusWidthPerCU (for non-transposed case)
+                                         NLCA,          // NumLoadsCoalesced (for non-transposed case)
+                                         NumWave1,      // numWaveX (for non-transposed case)
+                                         tcc_ea0_coalscedA);
+
+        double B_L1_req = Simulator::getLoadRequest(std::min(MT1, N), depthU, hw_consts.L1CacheLineSize, 
+                                         GRVWB, bpeB, DTVB, 
+                                         !transB,          // isTransposed (B is transposed when trB=false)
+                                         isSwizzleB,    // isSwizzled (for transposed case)
+                                         VWB,           // VW (for transposed case)
+                                         hw_consts.L1BusWidthPerCU,  // L1BusWidthPerCU (for non-transposed case)
+                                         NLCB,          // NumLoadsCoalesced (for non-transposed case)
+                                         NumWave0,      // numWaveX (for non-transposed case)
+                                         tcc_ea0_coalscedB);
+
+        double A_L2_req = A_L1_req * (1 - cache_hits.A_L1_hit) / 2 * tcc_ea0_coalscedA;
+        double A_L3_req = A_L2_req * (1 - cache_hits.A_L2_hit) / tcc_ea0_coalscedA;
+        double A_hbm_req = A_L3_req * (1 - cache_hits.A_L3_hit);
+        double B_L2_req = B_L1_req * (1 - cache_hits.B_L1_hit) / 2 * tcc_ea0_coalscedB;
+        double B_L3_req = B_L2_req * (1 - cache_hits.B_L2_hit) / tcc_ea0_coalscedB;
+        double B_hbm_req = B_L3_req * (1 - cache_hits.B_L3_hit);
+
+        MemoryAccessCosts mem_costs = calculateMemoryAccessCosts(std::min(MT0, M), std::min(MT1, N),
                                                                 hw_consts,
-                                                                GRVWA, GRVWB,
-                                                                DTVA, DTVB,
                                                                 cache_hits,
                                                                 L2BandWidthPerCU, L3BandWidthPerCU, HBMBandWidthPerCU,
-                                                                VWA, VWB,
                                                                 isSwizzleA, isSwizzleB,
-                                                                transA, transB,
-                                                                NumWave0, NumWave1,
-                                                                NLCA, NLCB);
+                                                                A_L1_req, B_L1_req,
+                                                                A_L2_req, A_L3_req, A_hbm_req,
+                                                                B_L2_req, B_L3_req, B_hbm_req);
 
         // 10. Calculate Prefetch Performance
         int numAccPerWave = MT0 * MT1 / waveNum / hw_consts.wavefrontSize;

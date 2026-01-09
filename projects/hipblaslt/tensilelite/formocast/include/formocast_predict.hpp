@@ -253,18 +253,14 @@ namespace Tensilelite
                                     ProblemInfo problem,
                                     const HardwareConstants& hw_consts) const;
         MemoryAccessCosts
-        calculateMemoryAccessCosts(double MT0, double MT1, uint32_t depthU,
-                                   uint32_t bpeA, uint32_t bpeB,
+        calculateMemoryAccessCosts(double MT0, double MT1,
                                    const HardwareConstants& hw,
-                                   uint32_t GRVWA, uint32_t GRVWB,
-                                   bool DTVA, bool DTVB,
                                    const CacheHitRates& hr,
                                    double L2BandWidthPerCU, double L3BandWidthPerCU, double HBMBandWidthPerCU,
-                                   uint32_t VWA, uint32_t VWB,
                                    bool isSwizzleA, bool isSwizzleB,
-                                   bool trA, bool trB,
-                                   uint32_t numWave0, uint32_t numWave1,
-                                   int NLCA, int NLCB) const;
+                                   double A_L1_req, double B_L1_req,
+                                   double A_L2_req, double A_L3_req, double A_hbm_req,
+                                   double B_L2_req, double B_L3_req, double B_hbm_req) const;
         double getLoopOverall(const MemoryAccessCosts& mem, double math, uint32_t loopCnt, double pgr) const;
         PredictedPerformance predictedPerformance() const;
         L1CacheHitRate
