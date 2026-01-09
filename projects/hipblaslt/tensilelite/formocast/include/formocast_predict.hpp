@@ -225,6 +225,36 @@ namespace Tensilelite
             DataType dataType;
         };
 
+        // Structure to hold intermediate calculation results
+        struct IntermediatePerformanceMetrics
+        {
+            // Cache hit rates (contains A_L1_hit, B_L1_hit, A_L2_hit, B_L2_hit, A_L3_hit, B_L3_hit, totalL2HitRate, totalL3HitRate)
+            CacheHitRates cache_hits;
+            
+            // Store performance
+            double store;
+            double store_edge;
+            
+            // Overall overheads
+            double gsu_overall;
+            double math_clk;
+            double lsu_overall;
+            
+            // Memory request counts
+            double A_L1_req;
+            double A_L2_req;
+            double A_L3_req;
+            double B_L1_req;
+            double B_L2_req;
+            double B_L3_req;
+            double A_hbm_req;
+            double B_hbm_req;
+            
+            // Prefetch and initial cost
+            double prefetch;
+            double initialCost;
+        };
+
         void setProblem(ProblemInfo p);
         void setSolution(SizeMapping sm);
         void setHardware(HardwareArchitecture arch);
@@ -263,6 +293,10 @@ namespace Tensilelite
                                    double B_L2_req, double B_L3_req, double B_hbm_req) const;
         double getLoopOverall(const MemoryAccessCosts& mem, double math, uint32_t loopCnt, double pgr) const;
         PredictedPerformance predictedPerformance() const;
+        
+        // New refactored functions
+        IntermediatePerformanceMetrics calculateIntermediateMetrics() const;
+        PredictedPerformance calculateFinalPerformance(const IntermediatePerformanceMetrics& metrics) const;
         L1CacheHitRate
         computeL1CacheHitRate(const HardwareConstants& hw,
                             double MT0, double MT1, uint32_t bpeA, uint32_t bpeB,
