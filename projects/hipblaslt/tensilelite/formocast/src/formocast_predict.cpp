@@ -616,8 +616,8 @@ namespace Tensilelite
         // 3. Variables directly from sizeMapping
 
         // Basic tile and workgroup configuration
-        double MT0 = sizeMapping.macroTile[0];
-        double MT1 = sizeMapping.macroTile[1];
+        double MT0 = sizeMapping.macroTile.x;
+        double MT1 = sizeMapping.macroTile.y;
         int      WGM = sizeMapping.workGroupMapping != 0 ? sizeMapping.workGroupMapping : 1;
         int      CUOccupancy = sizeMapping.CUOccupancy;
         uint32_t depthU = sizeMapping.depthU;
@@ -997,8 +997,8 @@ namespace Tensilelite
                                                    int32_t  NTB,
                                                    bool     isGSUWGMRR) const
     {
-        uint32_t MT0 = sizeMapping.macroTile[0];
-        uint32_t MT1 = sizeMapping.macroTile[1];
+        uint32_t MT0 = sizeMapping.macroTile.x;
+        uint32_t MT1 = sizeMapping.macroTile.y;
         uint32_t depthU = sizeMapping.depthU;
 
         auto hr = Simulator::computeL2CacheHitRate(

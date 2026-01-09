@@ -202,49 +202,13 @@ namespace TensileLite
         }
 
         static Tensilelite::Formocast::SizeMapping getSizeMapping(ContractionSolution&    solution,
-                                                           ContractionProblemGemm& problem,
-                                                           Hardware const&         hardware)
+                                                                   ContractionProblemGemm& problem,
+                                                                   Hardware const&         hardware)
         {
-            auto sizeMapping = solution.getSizeMapping();
-            Tensilelite::Formocast::SizeMapping sm;
-            
-            sm.waveNum = sizeMapping.waveNum;
-
-            sm.macroTile[0] = sizeMapping.macroTile.x;
-            sm.macroTile[1] = sizeMapping.macroTile.y;
-            sm.matrixInstruction = sizeMapping.matrixInstruction;
-
-            sm.grvwA = sizeMapping.grvwA;
-            sm.grvwB = sizeMapping.grvwB;
-            sm.gwvwC = sizeMapping.gwvwC;
-            sm.gwvwD = sizeMapping.gwvwD;
-
-            sm.depthU             = sizeMapping.depthU;
-            sm.globalSplitU       = solution.calculateAutoGSU(problem, &hardware);
-
-            sm.workGroupMapping   = sizeMapping.workGroupMapping;
-            sm.globalAccumulation = sizeMapping.globalAccumulation;
-
-            sm.workGroupMappingXCC                    = sizeMapping.workGroupMappingXCC;
-            sm.workGroupMappingXCCGroup               = sizeMapping.workGroupMappingXCCGroup;
-            sm.globalSplitUCoalesced                  = sizeMapping.globalSplitUCoalesced;
-            sm.globalSplitUWorkGroupMappingRoundRobin = sizeMapping.globalSplitUWorkGroupMappingRoundRobin;
-
-            sm.CUOccupancy            = sizeMapping.CUOccupancy;
-            sm.PrefetchGlobalRead     = sizeMapping.PrefetchGlobalRead;
-            sm.MathClocksUnrolledLoop = sizeMapping.MathClocksUnrolledLoop;
-
-            sm.DirectToVgprA      = sizeMapping.DirectToVgprA;
-            sm.DirectToVgprB      = sizeMapping.DirectToVgprB;
-            sm.NumLoadsCoalescedA = sizeMapping.NumLoadsCoalescedA;
-            sm.NumLoadsCoalescedB = sizeMapping.NumLoadsCoalescedB;
-            sm.VectorWidthA       = sizeMapping.VectorWidthA;
-            sm.VectorWidthB       = sizeMapping.VectorWidthB;
-            sm.LocalSplitU        = sizeMapping.LocalSplitU;
-            sm.DirectToLdsA       = sizeMapping.DirectToLdsA;
-            sm.DirectToLdsB       = sizeMapping.DirectToLdsB;
-
-            sm.waveGroup = sizeMapping.waveGroup;
+            // Since Formocast::SizeMapping is now an alias for TensileLite::SizeMapping,
+            // we can directly use the solution's sizeMapping and only update globalSplitU
+            auto sm = solution.getSizeMapping();
+            sm.globalSplitU = solution.calculateAutoGSU(problem, &hardware);
             return sm;
         }
 

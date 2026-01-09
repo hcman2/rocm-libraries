@@ -13,6 +13,7 @@
 #include <iostream>
 #include <unordered_map>
 #include <formocast.hpp>
+#include <Tensile/SizeMapping.hpp>
 
 namespace Tensilelite
 {
@@ -41,45 +42,9 @@ namespace Tensilelite
     class Formocast
     {
     public:
-        struct SizeMapping
-        {
-            size_t waveNum;
+        // Use SizeMapping from ContractionSolution instead of duplicating the definition
+        using SizeMapping = TensileLite::SizeMapping;
 
-            std::array<int, 3> macroTile;
-            std::array<int, 4> matrixInstruction;
-            size_t             grvwA = 1;
-            size_t             grvwB = 1;
-            size_t             gwvwC = 1;
-            size_t             gwvwD = 1;
-
-            size_t  depthU             = 0;
-            int16_t globalSplitU       = 0;
-
-            int     workGroupMapping   = 0;
-            int     globalAccumulation = 0;
-
-            int  workGroupMappingXCC                    = 0;
-            int  workGroupMappingXCCGroup               = 0;
-            bool globalSplitUCoalesced                  = false;
-            bool globalSplitUWorkGroupMappingRoundRobin = false;
-
-            int CUOccupancy            = 0;
-            int PrefetchGlobalRead     = 2;
-            int MathClocksUnrolledLoop = 0;
-
-            bool DirectToVgprA = false;
-            bool DirectToVgprB = false;
-            int NumLoadsCoalescedA = 0;
-            int NumLoadsCoalescedB = 0;
-            int VectorWidthA = 1;
-            int VectorWidthB = 1;
-            int LocalSplitU = 1;
-
-            std::array<int, 2> waveGroup;
-
-            bool DirectToLdsA = false;
-            bool DirectToLdsB = false;
-        };
         struct PredictedPerformance
         {
             double   microSeconds = 0.0;

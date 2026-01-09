@@ -39,6 +39,7 @@
 #include <Tensile/ContractionProblem_fwd.hpp>
 #include <Tensile/DataTypes.hpp>
 #include <Tensile/Predicates.hpp>
+#include <Tensile/SizeMapping.hpp>
 #include <Tensile/Task.hpp>
 #include <Tensile/Utils.hpp>
 
@@ -110,75 +111,7 @@ namespace TensileLite
         size_t depthUorMT1;
     };
 
-    struct SizeMapping
-    {
-        size_t waveNum;
-
-        dim3 workGroupSize;
-        dim3 threadTile;
-        dim3 macroTile;
-
-        std::array<int, 4> matrixInstruction;
-        size_t             grvwA = 1;
-        size_t             grvwB = 1;
-        size_t             gwvwC = 1;
-        size_t             gwvwD = 1;
-
-        size_t  staggerU           = 0;
-        size_t  staggerUMapping    = 0;
-        size_t  depthU             = 0;
-        size_t  globalSplitUPGR    = 0;
-        int16_t globalSplitU       = 0;
-        size_t  staggerStrideShift = 0;
-        int     workGroupMapping   = 0;
-
-        size_t packBatchDims              = 0;
-        int    packSummationDims          = 0;
-        int    magicDivAlg                = 1;
-        int    streamK                    = 0;
-        int    streamKAtomic              = 0;
-        int    persistentKernel           = 0;
-        bool   persistentKernelAlongBatch = false;
-
-        bool sourceKernel = false;
-
-        int    globalAccumulation       = 0;
-        size_t workspaceSizePerElemC    = 0;
-        size_t workspaceSizePerElemBias = 0;
-
-        bool activationFused = true;
-
-        std::string customKernelName;
-
-        int  workGroupMappingXCC                    = 0;
-        int  workGroupMappingXCCGroup               = 0;
-        bool globalSplitUCoalesced                  = false;
-        bool globalSplitUWorkGroupMappingRoundRobin = false;
-
-        int CUOccupancy            = 0;
-        int PrefetchGlobalRead     = 2;
-        int MathClocksUnrolledLoop = 0;
-
-        size_t synchronizerSizePerWG = 0;
-
-        int nonTemporalA = 0;
-        int nonTemporalB = 0;
-        int NonTemporalD = 0;
-        int WaveSeparateGlobalReadA = 0;
-        int WaveSeparateGlobalReadB = 0;
-        int UnrollLoopSwapGlobalReadOrder = 0;
-        bool DirectToVgprA = false;
-        bool DirectToVgprB = false;
-        int NumLoadsCoalescedA = 0;
-        int NumLoadsCoalescedB = 0;
-        int VectorWidthA = 1;
-        int VectorWidthB = 1;
-        int LocalSplitU = 1;
-        bool DirectToLdsA = false;
-        bool DirectToLdsB = false;
-
-        std::array<int, 2> waveGroup;
-    };
+    // SizeMapping is now defined in SizeMapping.hpp
 
     struct StreamKSettings
     {
