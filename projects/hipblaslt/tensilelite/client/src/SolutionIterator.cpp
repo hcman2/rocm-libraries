@@ -202,17 +202,6 @@ namespace TensileLite
             }
         }
 
-        static Tensilelite::Formocast::SizeMapping getSizeMapping(ContractionSolution&    solution,
-                                                                   ContractionProblemGemm& problem,
-                                                                   Hardware const&         hardware)
-        {
-            // Since Formocast::SizeMapping is now an alias for TensileLite::SizeMapping,
-            // we can directly use the solution's sizeMapping and only update globalSplitU
-            auto sm = solution.getSizeMapping();
-            sm.globalSplitU = solution.calculateAutoGSU(problem, &hardware);
-            return sm;
-        }
-
         bool SolutionIterator::runCurrentSolution()
         {
             auto solution = getSolution();
@@ -292,7 +281,8 @@ namespace TensileLite
                             if(!checkSolution(*solution, *gemmProblem, false))
                                 continue;
                             Tensilelite::Formocast::ProblemInfo problemInfo = getProblemInfo(*solution, *gemmProblem);
-                            Tensilelite::Formocast::SizeMapping sizeMapping = getSizeMapping(*solution, *gemmProblem, *m_hardware);
+                            auto sizeMapping = solution->getSizeMapping();
+                            sizeMapping.globalSplitU = solution->calculateAutoGSU(*gemmProblem, m_hardware.get());
                             auto hwInfo = getHardware(*m_hardware);
                             formocast.setProblem(problemInfo);
                             formocast.setSolution(sizeMapping);
@@ -572,7 +562,8 @@ namespace TensileLite
                         if(!checkSolution(*m_solutions[i], *gemmProblem, false))
                             continue;
                         Tensilelite::Formocast::ProblemInfo problemInfo = getProblemInfo(*m_solutions[i], *gemmProblem);
-                        Tensilelite::Formocast::SizeMapping sizeMapping = getSizeMapping(*m_solutions[i], *gemmProblem, *m_hardware);
+                        auto sizeMapping = m_solutions[i]->getSizeMapping();
+                        sizeMapping.globalSplitU = m_solutions[i]->calculateAutoGSU(*gemmProblem, m_hardware.get());
                         auto hwInfo = getHardware(*m_hardware);
                         formocast.setProblem(problemInfo);
                         formocast.setSolution(sizeMapping);
