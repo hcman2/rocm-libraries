@@ -193,9 +193,11 @@ namespace TensileLite
                     Task task(hardware, problem, *solution);
                     setupFormoCast(formocast, task);
                     // Note:
-                    //  formocast.predictedPerformance();
+                    //  formocast.calculateIntermediateMetrics();
+                    //  formocast.calculateFinalPerformance(metrics);
                     //  formocast.getTieBreakerInfo(); // or getMinTieBreakerInfo()
-                    auto perf = formocast.predictedPerformance().microSeconds;
+                    auto metrics = formocast.calculateIntermediateMetrics();
+                    auto perf = formocast.calculateFinalPerformance(metrics).microSeconds;
                     bestMS    = std::min(bestMS, perf);
                     perfMetric.push_back(
                         std::make_tuple(sol_idx, perf, formocast.getMinTieBreakerInfo()));

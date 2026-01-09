@@ -297,7 +297,8 @@ namespace TensileLite
                             formocast.setProblem(problemInfo);
                             formocast.setSolution(sizeMapping);
                             formocast.setHardware(hwInfo);
-                            predPerf = formocast.predictedPerformance();
+                            auto metrics = formocast.calculateIntermediateMetrics();
+                            predPerf = formocast.calculateFinalPerformance(metrics);
                             tbInfo[i] = formocast.getTieBreakerInfo();
                             performance.push_back(std::pair(i,predPerf.microSeconds));
                             m_hitrate[i] = predPerf.hitRate;
@@ -562,7 +563,8 @@ namespace TensileLite
                         Tensilelite::Formocast::SizeMapping sizeMapping = getSizeMapping(*m_solutions[i], *gemmProblem, *m_hardware);
                         formocast.setProblem(problemInfo);
                         formocast.setSolution(sizeMapping);
-                        predPerf = formocast.predictedPerformance();
+                        auto metrics = formocast.calculateIntermediateMetrics();
+                        predPerf = formocast.calculateFinalPerformance(metrics);
                         performance.push_back(std::pair(i,predPerf.microSeconds));
                         m_hitrate[i] = predPerf.hitRate;
                     }
