@@ -28,31 +28,10 @@
 
 #include <cstdint>
 #include <tuple>
+#include <origami/hardware.hpp>
 
-namespace Origami
+namespace origami
 {
-    // Hardware architecture enum
-    enum class HardwareArchitecture
-    {
-        gfx950,
-        gfx942,
-        gfx1201,
-        Unknown
-    };
-
-    // Data type enum
-    enum class DataType
-    {
-        Float,
-        Half,
-        BFloat16,
-        TF32,
-        Int8,
-        Int32,
-        Double,
-        Unknown
-    };
-
     // Hardware constants structure
     struct HardwareConstants
     {
@@ -85,20 +64,7 @@ namespace Origami
         uint32_t LocalReadConflictMultiplierB128;
         uint32_t LocalReadConflictMultiplierB64;
         uint32_t LocalReadConflictMultiplierB32;
-        HardwareArchitecture architecture;
-    };
-
-    // Cache hit rates structure
-    struct CacheHitRates
-    {
-        double A_L1_hit;
-        double B_L1_hit;
-        double A_L2_hit;
-        double B_L2_hit;
-        double A_L3_hit;
-        double B_L3_hit;
-        double totalL2HitRate;
-        double totalL3HitRate;
+        hardware_t::architecture_t architecture;
     };
 
     // Memory access costs structure
@@ -166,11 +132,11 @@ namespace Origami
         bool transB;
         bool swizzleTensorA;
         bool swizzleTensorB;
-        DataType dataType;
+        data_type_t dataType;
     };
 
-    // Simplified SizeMapping structure (only fields used by calculateFinalPerformance)
-    struct SizeMapping
+    // Simplified ConfigMapping structure (only fields used by calculateFinalPerformance)
+    struct ConfigMapping
     {
         struct MacroTile {
             double x;
@@ -188,8 +154,15 @@ namespace Origami
     // Intermediate performance metrics structure
     struct IntermediatePerformanceMetrics
     {
-        // Cache hit rates (contains operand0/1 hit rates for L1/L2/L3)
-        CacheHitRates cache_hits;
+        // Cache hit rates for tile 0 (A) and tile 1 (B)
+        double tile0_L1_hit;
+        double tile1_L1_hit;
+        double tile0_L2_hit;
+        double tile1_L2_hit;
+        double tile0_L3_hit;
+        double tile1_L3_hit;
+        double totalL2HitRate;
+        double totalL3HitRate;
         
         // Output write performance
         double output_write_cost;
@@ -241,7 +214,10 @@ namespace Origami
      * @param MT0 Macro tile dimension 0
      * @param MT1 Macro tile dimension 1
      * @param hw Hardware constants
-     * @param hr Cache hit rates
+     * @param tile0_L1_hit Tile 0 (A) L1 cache hit rate
+     * @param tile1_L1_hit Tile 1 (B) L1 cache hit rate
+     * @param totalL2HitRate Total L2 cache hit rate
+     * @param totalL3HitRate Total L3 cache hit rate
      * @param L2BandWidthPerCU L2 bandwidth per CU
      * @param L3BandWidthPerCU L3 bandwidth per CU
      * @param HBMBandWidthPerCU HBM bandwidth per CU
@@ -260,7 +236,8 @@ namespace Origami
     MemoryAccessCosts calculateMemoryAccessCosts(
         double MT0, double MT1,
         const HardwareConstants& hw,
-        const CacheHitRates& hr,
+        double tile0_L1_hit, double tile1_L1_hit,
+        double totalL2HitRate, double totalL3HitRate,
         double L2BandWidthPerCU, double L3BandWidthPerCU, double HBMBandWidthPerCU,
         bool isSwizzleA, bool isSwizzleB,
         double A_L1_req, double B_L1_req,
@@ -291,17 +268,17 @@ namespace Origami
      * @brief Calculate final predicted performance from intermediate metrics
      * @param metrics Intermediate performance metrics
      * @param problem Problem information
-     * @param sizeMapping Size mapping configuration
-     * @param hw_consts Hardware constants
+     * @param configMapping Config mapping configuration
+     * @param arch Hardware architecture
      * @param perfInfo Tie-breaker info (output parameter)
      * @return Predicted performance (microseconds and hit rate)
      */
-    PredictedPerformance calculateFinalPerformance(
+    PredictedPerformance derivePerformanceProjection(
         const IntermediatePerformanceMetrics& metrics,
         const ProblemInfo& problem,
-        const SizeMapping& sizeMapping,
-        const HardwareConstants& hw_consts,
+        const ConfigMapping& configMapping,
+        hardware_t::architecture_t arch,
         TieBreakerInfo& perfInfo);
 
-} // namespace Origami
+} // namespace origami
 

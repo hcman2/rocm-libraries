@@ -32,9 +32,10 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdint>
+#include <cstring>
 #include <stdexcept>
 
-namespace Origami
+namespace origami
 {
     namespace Utils
     {
@@ -51,6 +52,18 @@ namespace Origami
                 throw std::invalid_argument("Denominator cannot be zero");
             }
             return (numerator + denominator - 1) / denominator;
+        }
+
+        /**
+         * @brief Helper function to map architecture-specific magic bytes to HardwareConstants
+         */
+        HardwareConstants archConstantMap(const unsigned char* magic, size_t magicSize) {
+            HardwareConstants hw;
+            if (magicSize != sizeof(HardwareConstants)) {
+                throw std::runtime_error("Magic number size does not match HardwareConstants size");
+            }
+            std::memcpy(&hw, magic, magicSize);
+            return hw;
         }
     }
 
@@ -98,7 +111,8 @@ namespace Origami
     MemoryAccessCosts
     calculateMemoryAccessCosts(double MT0, double MT1,
                                const HardwareConstants& hw,
-                               const CacheHitRates& hr,
+                               double tile0_L1_hit, double tile1_L1_hit,
+                               double totalL2HitRate, double totalL3HitRate,
                                double L2BandWidthPerCU, double L3BandWidthPerCU, double HBMBandWidthPerCU,
                                bool isSwizzleA, bool isSwizzleB,
                                double A_L1_req, double B_L1_req,
@@ -128,10 +142,10 @@ namespace Origami
 #undef EXPERIMENTAL
 #define EXPERIMENTAL 1
 #if EXPERIMENTAL
-        A_L1_clk = A_L1_req * hr.A_L1_hit * 64 / hw.L1BusWidthPerCU;
+        A_L1_clk = A_L1_req * tile0_L1_hit * 64 / hw.L1BusWidthPerCU;
         A_L3_clk = A_L3_req * 64 / L3BandWidthPerCU;
         A_hbm_clk = A_hbm_req * 8 / HBMBandWidthPerCU;
-        B_L1_clk = B_L1_req * hr.B_L1_hit * 64 / hw.L1BusWidthPerCU;
+        B_L1_clk = B_L1_req * tile1_L1_hit * 64 / hw.L1BusWidthPerCU;
         B_L3_clk = B_L3_req * 64 / L3BandWidthPerCU;
         B_hbm_clk = B_hbm_req * 8 / HBMBandWidthPerCU;
 
@@ -145,9 +159,9 @@ namespace Origami
         mem.mem_l2 = L2_overall;//std::max(mem.mem_l1, L2_overall);
         mem.mem_l3 = L3_overall;//std::max(mem.mem_l2, L3_overall);
         mem.mem_hbm = hbm_overall;//std::max(mem.mem_l3, hbm_overall);
-        mem.l1_hit = (hr.A_L1_hit * MT0 + hr.B_L1_hit * MT1) / (MT0 + MT1);
-        mem.l2_hit = hr.totalL2HitRate;
-        mem.l3_hit = hr.totalL3HitRate;
+        mem.l1_hit = (tile0_L1_hit * MT0 + tile1_L1_hit * MT1) / (MT0 + MT1);
+        mem.l2_hit = totalL2HitRate;
+        mem.l3_hit = totalL3HitRate;
 #else
         double L1_overall   = (A_L1_clk + B_L1_clk) / hw.math_frequency;
         double L2_overall   = (A_L2_clk + B_L2_clk) / hw.math_frequency;
@@ -159,9 +173,9 @@ namespace Origami
         mem.mem_l2 = std::max(mem.mem_l1, L2_overall);
         mem.mem_l3 = std::max(mem.mem_l2, L3_overall);
         mem.mem_hbm = std::max(mem.mem_l3, hbm_overall);
-        mem.l1_hit = (hr.A_L1_hit * MT0 + hr.B_L1_hit * MT1) / (MT0 + MT1);
-        mem.l2_hit = hr.totalL2HitRate;
-        mem.l3_hit = hr.totalL3HitRate;
+        mem.l1_hit = (tile0_L1_hit * MT0 + tile1_L1_hit * MT1) / (MT0 + MT1);
+        mem.l2_hit = totalL2HitRate;
+        mem.l3_hit = totalL3HitRate;
 
 #endif
         //for debug
@@ -230,20 +244,60 @@ namespace Origami
     }
 
     // ============================================================================
-    // Main function: calculateFinalPerformance
-    // Calculates final predicted performance from intermediate metrics
+    // Internal helper function: getHardwareConstants
+    // Returns hardware constants for a specific architecture
+    // ============================================================================
+    namespace {
+        HardwareConstants getHardwareConstants(hardware_t::architecture_t arch)
+        {
+            HardwareConstants hw;
+            
+            if(arch == hardware_t::architecture_t::gfx950)
+            {
+                unsigned char magic[208] = {0, 0, 0, 0, 0, 0, 224, 64, 0, 0, 0, 0, 0, 0, 80, 65, 0, 0, 0, 0, 0, 0, 176, 65, 0, 0, 0, 0, 0, 0, 96, 64, 0, 0, 0, 0, 0, 0, 96, 64, 0, 0, 0, 0, 0, 0, 80, 64, 0, 0, 0, 0, 0, 0, 96, 64, 0, 0, 0, 0, 0, 0, 80, 64, 0, 0, 0, 0, 0, 0, 80, 64, 0, 0, 0, 0, 0, 0, 8, 64, 0, 0, 0, 0, 0, 176, 157, 64, 189, 134, 242, 26, 202, 171, 152, 64, 189, 134, 242, 26, 202, 171, 168, 64, 0, 0, 0, 0, 0, 32, 156, 64, 0, 0, 0, 0, 0, 92, 162, 64, 205, 204, 204, 204, 204, 204, 4, 64, 205, 204, 204, 204, 204, 204, 0, 64, 0, 0, 0, 0, 0, 0, 176, 64, 0, 0, 0, 0, 0, 0, 112, 64, 0, 0, 0, 0, 0, 0, 80, 64, 205, 204, 204, 204, 204, 204, 236, 63, 0, 0, 0, 0, 0, 0, 232, 63, 8, 0, 0, 0, 14, 0, 0, 0, 10, 0, 0, 0, 10, 0, 0, 0, 6, 0, 0, 0, 3, 0, 0, 0, 3, 0, 0, 0};
+                hw = Utils::archConstantMap(magic, 208);
+                hw.architecture = hardware_t::architecture_t::gfx950;
+            }
+            else if(arch == hardware_t::architecture_t::gfx942)
+            {
+                unsigned char magic[208] = {0, 0, 0, 0, 0, 0, 224, 64, 0, 0, 0, 0, 0, 0, 80, 65, 0, 0, 0, 0, 0, 0, 176, 65, 0, 0, 0, 0, 0, 0, 96, 64, 0, 0, 0, 0, 0, 0, 96, 64, 0, 0, 0, 0, 0, 0, 80, 64, 0, 0, 0, 0, 0, 0, 96, 64, 0, 0, 0, 0, 0, 0, 80, 64, 0, 0, 0, 0, 0, 0, 80, 64, 0, 0, 0, 0, 0, 0, 8, 64, 0, 0, 0, 0, 0, 80, 148, 64, 118, 98, 39, 118, 98, 7, 162, 64, 118, 98, 39, 118, 98, 7, 178, 64, 0, 0, 0, 0, 0, 48, 145, 64, 1, 96, 132, 2, 0, 0, 0, 0, 154, 153, 153, 153, 153, 153, 5, 64, 64, 96, 132, 2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 160, 64, 0, 0, 0, 0, 0, 0, 115, 64, 0, 0, 0, 0, 0, 0, 80, 64, 205, 204, 204, 204, 204, 204, 236, 63, 143, 194, 245, 40, 92, 143, 226, 63, 8, 0, 0, 0, 10, 0, 0, 0, 5, 0, 0, 0, 2, 0, 0, 0, 6, 0, 0, 0, 3, 0, 0, 0, 3, 0, 0, 0};
+                hw = Utils::archConstantMap(magic, 208);
+                hw.architecture = hardware_t::architecture_t::gfx942;
+            }
+            else if(arch == hardware_t::architecture_t::gfx1201)
+            {
+                unsigned char magic[208] = {0, 0, 0, 0, 0, 0, 224, 64, 0, 0, 0, 0, 0, 0, 96, 65, 0, 0, 0, 0, 0, 0, 144, 65, 0, 0, 0, 0, 0, 0, 96, 64, 0, 0, 0, 0, 0, 0, 96, 64, 0, 0, 0, 0, 0, 0, 96, 64, 0, 0, 0, 0, 0, 0, 96, 64, 0, 0, 0, 0, 0, 0, 80, 64, 0, 0, 0, 0, 0, 0, 96, 64, 0, 0, 0, 0, 0, 0, 228, 63, 0, 0, 0, 0, 0, 168, 147, 64, 20, 174, 71, 225, 122, 132, 78, 64, 104, 145, 237, 124, 63, 119, 123, 64, 0, 0, 0, 0, 0, 92, 162, 64, 0, 0, 0, 0, 0, 136, 163, 64, 51, 51, 51, 51, 51, 51, 45, 64, 205, 204, 204, 204, 204, 204, 44, 64, 0, 0, 0, 0, 0, 0, 160, 64, 0, 0, 0, 0, 0, 0, 80, 64, 0, 0, 0, 0, 0, 0, 64, 64, 205, 204, 204, 204, 204, 204, 236, 63, 0, 0, 0, 0, 0, 0, 232, 63, 1, 0, 0, 0, 14, 0, 0, 0, 10, 0, 0, 0, 10, 0, 0, 0, 6, 0, 0, 0, 3, 0, 0, 0, 3, 0, 0, 0};
+                hw = Utils::archConstantMap(magic, 208);
+                hw.architecture = hardware_t::architecture_t::gfx1201;
+            }
+            else
+            {
+                throw std::runtime_error(
+                        "Attempting to retrieve hardware constants for unsupported architecture");
+            }
+
+            return hw;
+        }
+    } // anonymous namespace
+
+    // ============================================================================
+    // Main function: derivePerformanceProjection
+    // Calculates performance projection from intermediate metrics
     // ============================================================================
     PredictedPerformance
-    calculateFinalPerformance(
+    derivePerformanceProjection(
         const IntermediatePerformanceMetrics& metrics,
         const ProblemInfo& problem,
-        const SizeMapping& sizeMapping,
-        const HardwareConstants& hw_consts,
+        const ConfigMapping& configMapping,
+        hardware_t::architecture_t arch,
         TieBreakerInfo& perfInfo)
     {
         PredictedPerformance pp;
 
-        // Re-calculate all necessary values from problem, sizeMapping, and hw_consts
+        // Get hardware constants for the specified architecture
+        HardwareConstants hw_consts = getHardwareConstants(arch);
+
+        // Re-calculate all necessary values from problem, configMapping, and hw_consts
         double M = problem.M;
         double N = problem.N;
         double NumBatches = problem.NumBatches;
@@ -251,13 +305,13 @@ namespace Origami
         bool isSwizzleA = problem.swizzleTensorA;
         bool isSwizzleB = problem.swizzleTensorB;
 
-        double MT0 = sizeMapping.macroTile.x;
-        double MT1 = sizeMapping.macroTile.y;
-        int WGM = sizeMapping.workGroupMapping != 0 ? sizeMapping.workGroupMapping : 1;
-        int CUOccupancy = sizeMapping.CUOccupancy;
-        uint32_t depthU = sizeMapping.depthU;
-        uint32_t GlobalSplitU = sizeMapping.globalSplitU;
-        uint32_t GWVWD = sizeMapping.gwvwD;
+        double MT0 = configMapping.macroTile.x;
+        double MT1 = configMapping.macroTile.y;
+        int WGM = configMapping.workGroupMapping != 0 ? configMapping.workGroupMapping : 1;
+        int CUOccupancy = configMapping.CUOccupancy;
+        uint32_t depthU = configMapping.depthU;
+        uint32_t GlobalSplitU = configMapping.globalSplitU;
+        uint32_t GWVWD = configMapping.gwvwD;
 
         double K_AfterGSU = ceilDivide((uint32_t)K, GlobalSplitU);
         uint32_t M_WGs_total = ceilDivide(M, MT0);
@@ -270,11 +324,11 @@ namespace Origami
         uint32_t loopCnt = K_AfterGSU / depthU;
         uint32_t K_tail = K_AfterGSU - (loopCnt * depthU);
 
-        int PGR = sizeMapping.PrefetchGlobalRead;
+        int PGR = configMapping.PrefetchGlobalRead;
 #undef EXPERIMENTAL
 #define EXPERIMENTAL 1
 #if EXPERIMENTAL
-        PGR = (std::floor(K_AfterGSU/depthU > 1)) ? sizeMapping.PrefetchGlobalRead : int(K_AfterGSU/depthU);
+        PGR = (std::floor(K_AfterGSU/depthU > 1)) ? configMapping.PrefetchGlobalRead : int(K_AfterGSU/depthU);
 #endif
 
         double L2BandWidthPerCU = hw_consts.L2ReadArbEff * 128 * 16 / WGs_per_tile_XCD;
@@ -294,7 +348,8 @@ namespace Origami
         MemoryAccessCosts mem_costs = calculateMemoryAccessCosts(
             std::min(MT0, M), std::min(MT1, N),
             hw_consts,
-            metrics.cache_hits,
+            metrics.tile0_L1_hit, metrics.tile1_L1_hit,
+            metrics.totalL2HitRate, metrics.totalL3HitRate,
             L2BandWidthPerCU, L3BandWidthPerCU, HBMBandWidthPerCU,
             isSwizzleA, isSwizzleB,
             metrics.tile0_l1_request, metrics.tile1_l1_request,
@@ -366,7 +421,7 @@ namespace Origami
 #endif
 
         pp.microSeconds = perf;
-        pp.hitRate = metrics.cache_hits.totalL2HitRate * 100;
+        pp.hitRate = metrics.totalL2HitRate * 100;
 
         // Update perfInfo (mutable member)
         perfInfo.memory = mem_costs;
@@ -386,5 +441,5 @@ namespace Origami
         return pp;
     }
 
-} // namespace Origami
+} // namespace origami
 
