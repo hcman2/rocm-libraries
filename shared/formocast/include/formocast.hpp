@@ -67,7 +67,7 @@ namespace Tensilelite
                               double L2ReadArbEff, double L1BusWidthPerCU, double L2BusWidthPerCU,
                               double storeGSU);
 
-        double getLSUOverhead(double MT0, double MT1, double lsu, uint32_t svw, 
+        double getLSUOverhead(double MT0, double MT1, double lsu, uint32_t svw,
                              uint32_t numThreads, uint32_t bpeCompute, double math_frequency);
 
         // Cache hit rate calculation functions
@@ -107,12 +107,12 @@ namespace Tensilelite
         L2CacheHitRate computeL2CacheHitRate(uint32_t M, uint32_t N, uint32_t K,
                                              uint32_t MT0, uint32_t MT1, uint32_t depthU,
                                              uint32_t L2CacheCapacity, uint32_t NumCUs, uint32_t NumXCDs,
-                                             uint32_t gsu, int32_t wgm, uint32_t batches,
-                                             uint32_t bpeA, uint32_t bpeB, int32_t NTA, int32_t NTB,
-                                             bool isGSUWGMRR);
+                                             uint32_t XCC, uint32_t XCCG, uint32_t gsu, int32_t wgm,
+                                             uint32_t batches, uint32_t bpeA, uint32_t bpeB, int32_t NTA,
+                                             int32_t NTB, bool isGSUWGMRR);
 
         // Store request calculation functions
-        double calculateStoreL3Request(double M, double N, double MT0, double MT1, 
+        double calculateStoreL3Request(double M, double N, double MT0, double MT1,
                                        double& non_edge_req, double& edge_req);
         double calculateStoreL2Request(double M, double N, double MT0, double MT1, double SVW,
                                        double& non_edge_req, double& edge_req);

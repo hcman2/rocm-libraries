@@ -207,7 +207,7 @@ namespace TensileLite
         {
             auto sizeMapping = solution.getSizeMapping();
             Tensilelite::Formocast::SizeMapping sm;
-            
+
             sm.waveNum = sizeMapping.waveNum;
 
             sm.macroTile[0] = sizeMapping.macroTile.x;
@@ -306,6 +306,8 @@ namespace TensileLite
 
         void AllSolutionsIterator::preProblem(ContractionProblem* const problem)
         {
+            // std::cout << "SolutionName," << "L2_A_HitRate, " << "L2_B_HitRate, " << "L2_Total_HitRate" << std::endl;
+
             SolutionIterator::preProblem(problem);
             if (m_predictionThreshold > 1.0)
             {
@@ -326,6 +328,9 @@ namespace TensileLite
                         {
                             if(!checkSolution(*solution, *gemmProblem, false))
                                 continue;
+
+                            // std::cout << solution->name() << ",";
+
                             Tensilelite::Formocast::PredictedPerformance predPerf;
                             Tensilelite::Formocast::ProblemInfo problemInfo = getProblemInfo(*solution, *gemmProblem);
                             Tensilelite::Formocast::SizeMapping sizeMapping = getSizeMapping(*solution, *gemmProblem, *m_hardware);
@@ -358,7 +363,7 @@ namespace TensileLite
                 for (int i=0; i<performance.size(); i++)
                 {
                     if(m_predictionThreshold == 0.0)
-                    {   
+                    {
                         auto bestIdx = 0;
 #undef EXPERIMENTAL
 #define EXPERIMENTAL 0
@@ -417,7 +422,7 @@ namespace TensileLite
             {
                 m_reporter->report(ResultKey::SolutionProgress,
                      concatenate(m_currentSolutionIdx, "/", m_lastSolutionIdx));
-                
+
             }
             else
             {
@@ -660,9 +665,9 @@ namespace TensileLite
             if(m_predictionThreshold > 1.0)
                 m_reporter->report(ResultKey::SolutionProgress,
                                concatenate(m_currentSolutionIdx, "/", m_solutions.size()));
-            else    
+            else
                 m_reporter->report(ResultKey::SolutionProgress,
-                               concatenate("hitrate,",m_hitrate[m_currentSolutionIdx],",",m_currentSolutionIdx,"->",m_currentPrediction," us, ",m_currentSolutionIdx,"/",m_solutions.size()));               
+                               concatenate("hitrate,",m_hitrate[m_currentSolutionIdx],",",m_currentSolutionIdx,"->",m_currentPrediction," us, ",m_currentSolutionIdx,"/",m_solutions.size()));
         }
 
         void TopSolutionIterator::postSolution()

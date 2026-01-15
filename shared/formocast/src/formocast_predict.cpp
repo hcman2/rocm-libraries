@@ -147,7 +147,7 @@ namespace Tensilelite
             //std::cout<<"grCycles, others, math_frequency="<<grCycles<<","<<others<<","<<math_frequency<<""<<std::endl;
         }
         return (grCycles2 + others) / math_frequency;
-#endif                          
+#endif
     }
 
 
@@ -299,7 +299,7 @@ namespace Tensilelite
             MT0, MT1, bpeA, bpeB, NTA, NTB, GRVWA, GRVWB, DTVA, DTVB,
             isSwizzleA, isSwizzleB, VWA, VWB, transA, transB, lda, ldb,
             NLCA, NLCB, threadnum, NumWave0, NumWave1, hw.architecture == HardwareArchitecture::gfx942);
-        
+
         L1CacheHitRate result;
         result.tile0HitRate = hr.tile0HitRate;
         result.tile1HitRate = hr.tile1HitRate;
@@ -314,7 +314,7 @@ namespace Tensilelite
         auto hr = Simulator::computeL3CacheHitRate(
             M, N, K, hw.L3CacheCapacity, hw.NumCUs, bpeA, bpeB, NTA, NTB,
             N_WGs_total, M_WGs_total, N_WGs_per_tile, M_WGs_per_tile);
-        
+
         L3CacheHitRate result;
         result.totalHitRate = hr.totalHitRate;
         result.tile0HitRate = hr.tile0HitRate;
@@ -331,7 +331,7 @@ namespace Tensilelite
                                                         double storeGSU) const
     {
         double gsu_overall = 0.0;
-        
+
         if(gsuMethod == 2 && GlobalSplitU > 1) //MB
         {
             gsu_overall = Simulator::getMBOverhead(
@@ -361,7 +361,7 @@ namespace Tensilelite
                                                      ProblemInfo problem,
                                                      const HardwareConstants& hw_consts) const
     {
-        return Simulator::getLSUOverhead(MT0, MT1, lsu, svw, numThreads, 
+        return Simulator::getLSUOverhead(MT0, MT1, lsu, svw, numThreads,
                                          problem.bpeCompute, hw_consts.math_frequency);
     }
 
@@ -382,8 +382,8 @@ namespace Tensilelite
         MemoryAccessCosts mem;
         double tcc_ea0_coalscedA;
         double tcc_ea0_coalscedB;
-        double A_L1_req = Simulator::getLoadRequest(MT0, depthU, hw.L1CacheLineSize, 
-                                         GRVWA, bpeA, DTVA, 
+        double A_L1_req = Simulator::getLoadRequest(MT0, depthU, hw.L1CacheLineSize,
+                                         GRVWA, bpeA, DTVA,
                                          trA,           // isTransposed
                                          isSwizzleA,    // isSwizzled (for transposed case)
                                          VWA,           // VW (for transposed case)
@@ -392,8 +392,8 @@ namespace Tensilelite
                                          numWave1,      // numWaveX (for non-transposed case)
                                          tcc_ea0_coalscedA);
 
-        double B_L1_req = Simulator::getLoadRequest(MT1, depthU, hw.L1CacheLineSize, 
-                                         GRVWB, bpeB, DTVB, 
+        double B_L1_req = Simulator::getLoadRequest(MT1, depthU, hw.L1CacheLineSize,
+                                         GRVWB, bpeB, DTVB,
                                          !trB,          // isTransposed (B is transposed when trB=false)
                                          isSwizzleB,    // isSwizzled (for transposed case)
                                          VWB,           // VW (for transposed case)
@@ -530,7 +530,7 @@ namespace Tensilelite
     bool Formocast::isBetter(ProblemInfo problem, TieBreakerInfo previousSolution) const
     {
         auto currSol = getTieBreakerInfo();
-        
+
         // Call standalone tie-breaker function
         return compareConfigTieBreaker(
             problem.M, problem.N, problem.K, problem.NumBatches,
@@ -999,16 +999,21 @@ namespace Tensilelite
     {
         uint32_t MT0 = sizeMapping.macroTile[0];
         uint32_t MT1 = sizeMapping.macroTile[1];
+        uint32_t XCC = sizeMapping.workGroupMappingXCC;
+        uint32_t XCCG = (sizeMapping.workGroupMappingXCCGroup < 0)? hw.NumCUs : sizeMapping.workGroupMappingXCCGroup;
         uint32_t depthU = sizeMapping.depthU;
 
         auto hr = Simulator::computeL2CacheHitRate(
             M, N, K, MT0, MT1, depthU, hw.L2CacheCapacity, hw.NumCUs, hw.NumXCDs,
-            gsu, wgm, batches, bpeA, bpeB, NTA, NTB, isGSUWGMRR);
-        
+            XCC, XCCG, gsu, wgm, batches, bpeA, bpeB, NTA, NTB, isGSUWGMRR);
+
         L2CacheHitRate hitRate;
         hitRate.totalHitRate = hr.totalHitRate;
         hitRate.tile0HitRate = hr.tile0HitRate;
         hitRate.tile1HitRate = hr.tile1HitRate;
+        //
+        // std::cout << hr.tile0HitRate << "," << hr.tile1HitRate << "," << hr.totalHitRate << std::endl;
+        //
 
         return hitRate;
     }
@@ -1113,7 +1118,7 @@ namespace Tensilelite
         // No preference - configurations are considered equal
         return false;
     }
-    
+
     // Helper function to analyze bank conflicts from VGPR states
     Formocast::BankConflictResult Formocast::analyzeBankConflictsFromVGPR(
         const std::vector<std::unordered_map<std::string, int64_t>>& vgprState,
