@@ -198,7 +198,7 @@ namespace origami
                 hw_consts.L1WriteBusWidthPerCU, hw_consts.L2WriteBusWidthPerCU
             );
         }
-        else if(gsuMethod == 3 && GlobalSplitU > 1) //MBSK
+        else if(GlobalSplitU > 1) //MBSK & SteamK // TODO: calculate real StreamK overhead
         {
             gsu_overall = simulator::getMultipleBufferSingleKernelOverhead(
                 GlobalSplitU, MT0, MT1, problem.bpeCompute,

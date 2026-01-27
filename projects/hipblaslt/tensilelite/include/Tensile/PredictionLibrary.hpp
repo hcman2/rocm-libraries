@@ -114,10 +114,36 @@ namespace TensileLite
 
             sm.depthU             = sizeMapping.depthU;
             sm.globalSplitU       = solution.calculateAutoGSU(problem, &task.hardware);
-            sm.workGroupMapping   = sizeMapping.workGroupMapping;
+            if (sm.globalSplitU == 0)
+            {
+                auto reduction = solution.getSKReduction(problem, task.hardware);
+                auto tiles = problem.getNumTiles(sizeMapping, 1);
+                auto skgrid = solution.getSKGrid(problem, task.hardware, tiles, reduction);
+                const bool streamKDP = Debug::Instance().useStreamKDataParrallel();
+                if(skgrid > 0
+                   && (reduction == origami::reduction_t::parallel
+                       || (tiles % skgrid != 0 && !streamKDP)))
+                {
+                    // Check ideal amount of workspace for optimal performance
+                    size_t idealWorkspace = solution.partialTileSize(skgrid);
+                    // If given workspace is less than ideal, we can fall back to DP mode
+                    // Performance will likely be lower, but the kernel can run if workspace is unavailable
+                    if(idealWorkspace > problem.workspaceSize())
+                    {
+                        reduction = origami::reduction_t::tree;
+                        skgrid      = tiles;
+                    }
+                }
+                sm.globalSplitU = origami::math::safe_ceil_div(skgrid, tiles);
+                auto [autoWGM, autoWGMXCC, autoWGMXCCCHUNK] = solution.calculateAutoWGM(problem, &task.hardware, skgrid);
+                sm.workGroupMapping    = autoWGM;
+                sm.workGroupMappingXCC = autoWGMXCC == 0 ? sizeMapping.workGroupMappingXCC : autoWGMXCC; // TODO: check XCC/XCCCHUNK in StreamK
+            } else {
+                sm.workGroupMapping    = sizeMapping.workGroupMapping;
+                sm.workGroupMappingXCC = sizeMapping.workGroupMappingXCC;
+            }
             sm.globalAccumulation = sizeMapping.globalAccumulation;
 
-            sm.workGroupMappingXCC      = sizeMapping.workGroupMappingXCC;
             sm.workGroupMappingXCCGroup = sizeMapping.workGroupMappingXCCGroup;
             sm.globalSplitUCoalesced    = sizeMapping.globalSplitUCoalesced;
             sm.globalSplitUWorkGroupMappingRoundRobin
