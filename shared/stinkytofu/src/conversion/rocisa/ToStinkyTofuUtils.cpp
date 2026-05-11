@@ -1151,6 +1151,10 @@ void init_stinkytofu(nb::module_ m) {
         std::shared_ptr<StinkyAsmModule> getModule() const {
             return module_;
         }
+
+        std::optional<uint64_t> getMetaDataU64(const std::string& key) const {
+            return module_->getMetaDataU64(key);
+        }
     };
 
     // Bind the wrapper class
@@ -1158,7 +1162,8 @@ void init_stinkytofu(nb::module_ m) {
         .def("runOptimizationPipeline", &StinkyAsmModuleWithSignature::runOptimizationPipeline)
         .def("emitAssembly", &StinkyAsmModuleWithSignature::emitAssembly)
         .def("getName", &StinkyAsmModuleWithSignature::getName)
-        .def("getModule", &StinkyAsmModuleWithSignature::getModule);
+        .def("getModule", &StinkyAsmModuleWithSignature::getModule)
+        .def("getMetaDataU64", &StinkyAsmModuleWithSignature::getMetaDataU64, nb::arg("key"));
 
     // Bind toStinkyTofuModule with signature support
     m.def(

@@ -222,7 +222,7 @@ class EstimateAsmCyclesPassImpl : public Pass {
             // Skip filtered basic blocks
             if (!passCtx.shouldProcessBasicBlock(bb)) continue;
 
-            // std::cout << "Processing basic block: " << bb.getLabel() << "\n";
+            std::cout << "Processing basic block: " << bb.getLabel() << "\n";
             // Only process the loopWithPrefetch block
 
             // if(bb.getLabel() == "LocalReadDoA_I0" || bb.getLabel() == "LocalReadDoB_I0")
@@ -240,7 +240,7 @@ class EstimateAsmCyclesPassImpl : public Pass {
             // }
             calculateMathClocksInUnrolledLoop(bb, passCtx);
         }
-        // std::cout << "[EstimateAsmCycles] Total Asm Cycles: " << totalCycles_ << "\n";
+        std::cout << "[EstimateAsmCycles] Total Asm Cycles: " << totalCycles_ << "\n";
         func.setMetaData(kEstimateAsmTotalCyclesMetadataKey, totalCycles_);
 
         return PreservedAnalyses::all();
@@ -863,6 +863,7 @@ class EstimateAsmCyclesPassImpl : public Pass {
                     const std::string& labelName = labelData->label;
                     auto pos = labelName.find("label_LoopBeginL");
                     if (pos != std::string::npos && pos == 0) {
+                        isLoopBeginL = false;
                         break;
                     }
                 }
@@ -943,12 +944,8 @@ class EstimateAsmCyclesPassImpl : public Pass {
             // Update total cycles
             if (!isLabel(*inst)) {
                 // inst->dump(std::cout, false, "AsmCycles "+std::to_string(cycles - totalCycles));
-                if (auto* c = inst->getModifier<CommentData>()) {
-                    c->comment = "<This is " + std::to_string(cycles) + "-cycle>";
-                } else {
-                    inst->addModifier<CommentData>(
-                        CommentData{"<This is " + std::to_string(cycles) + "-cycle>"});
-                }
+                // appendComment(inst,
+                //              "<This is " + std::to_string(cycles) + "-cycle>");
             }
             // std::cout << "cycles: " << cycles - totalCycles << std::endl;
             totalCycles = cycles;

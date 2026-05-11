@@ -124,8 +124,8 @@ bool buildGfx1250Pipeline(PassManager& pm, StinkyAsmModule& module) {
     // -- kernel --
     pm.addPass(createInsertVgprMsbPass());
     if (optLevel != OptLevel::O0) {
-        pm.addPass(createCFGBuilderPass());
-        pm.addPass(createInsertDelayAluPass());
+        // pm.addPass(createCFGBuilderPass());
+        // pm.addPass(createInsertDelayAluPass());
     }
     pm.addPass(createEstimateAsmCyclesPass());
 
