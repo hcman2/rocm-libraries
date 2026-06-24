@@ -123,10 +123,10 @@ if(HIPBLASLT_BUNDLE_PYTHON_DEPS OR ROCISA_STANDALONE)
     )
 
     # Locate stinkytofu: prefer installed package, fall back to monorepo sibling.
+    set(_stinkytofu_sibling "${CMAKE_CURRENT_SOURCE_DIR}/../../../../shared/stinkytofu")
     if(NOT TARGET stinkytofu)
         find_package(stinkytofu QUIET)
         if(NOT stinkytofu_FOUND)
-            set(_stinkytofu_sibling "${CMAKE_CURRENT_SOURCE_DIR}/../../../../shared/stinkytofu")
             if(IS_DIRECTORY "${_stinkytofu_sibling}")
                 set(STINKYTOFU_ENABLE_WERROR ON)
                 add_subdirectory("${_stinkytofu_sibling}" stinkytofu EXCLUDE_FROM_ALL)
@@ -134,6 +134,9 @@ if(HIPBLASLT_BUNDLE_PYTHON_DEPS OR ROCISA_STANDALONE)
             else()
                 message(FATAL_ERROR "stinkytofu not found via find_package or sibling directory")
             endif()
+        elseif(NOT TARGET stinkytofu AND TARGET stinkytofu::stinkytofu)
+            # Installed stinkytofu exports the namespaced target only.
+            add_library(stinkytofu ALIAS stinkytofu::stinkytofu)
         endif()
     endif()
 
@@ -162,6 +165,55 @@ if(HIPBLASLT_BUNDLE_PYTHON_DEPS OR ROCISA_STANDALONE)
             set(_st_build_rpath "")
         endif()
     endif()
+
+    if(NOT _stinkytofu_from_subdirectory)
+        # Standalone rocisa + find_package(stinkytofu): bring in the rocisa<->stinkytofu
+        # conversion sources explicitly. In the in-tree add_subdirectory flow this comes
+        # from shared/stinkytofu/src/conversion/rocisa/CMakeLists.txt.
+        set(_st_conv_dir "${_stinkytofu_sibling}/src/conversion/rocisa")
+        get_target_property(_st_export_includes stinkytofu INTERFACE_INCLUDE_DIRECTORIES)
+        set(_st_generated_include "")
+        if(_st_export_includes)
+            list(GET _st_export_includes 0 _st_first_include)
+            cmake_path(GET _st_first_include PARENT_PATH _st_include_parent)
+            cmake_path(GET _st_include_parent PARENT_PATH _st_install_prefix)
+            set(_st_generated_include "${_st_install_prefix}/../stinkytofu-build/include")
+            set(_st_generated_build_root "${_st_install_prefix}/../stinkytofu-build")
+            cmake_path(NORMAL_PATH _st_generated_include)
+            cmake_path(NORMAL_PATH _st_generated_build_root)
+        endif()
+        if(IS_DIRECTORY "${_st_conv_dir}")
+            target_sources(_rocisa PRIVATE
+                "${_st_conv_dir}/AllHwMappings.cpp"
+                "${_st_conv_dir}/ToStinkyTofuUtils.cpp"
+            )
+            target_include_directories(_rocisa PRIVATE
+                "${_st_conv_dir}"
+                "${_stinkytofu_sibling}/include"
+            )
+            if(EXISTS "${_st_generated_include}/Config/Archs.def")
+                # GfxIsa.hpp includes Config/Archs.def, generated in stinkytofu's build tree.
+                target_include_directories(_rocisa PRIVATE "${_st_generated_include}")
+            else()
+                message(FATAL_ERROR
+                    "Required generated header Config/Archs.def not found under "
+                    "${_st_generated_include}. Build stinkytofu via invoke rocisa first.")
+            endif()
+            if(EXISTS "${_st_generated_build_root}/hardware/gfxIsa.inc")
+                # StinkyAsmIR.hpp includes hardware/gfxIsa.inc from stinkytofu's build tree.
+                target_include_directories(_rocisa PRIVATE "${_st_generated_build_root}")
+            else()
+                message(FATAL_ERROR
+                    "Required generated include hardware/gfxIsa.inc not found under "
+                    "${_st_generated_build_root}. Build stinkytofu via invoke rocisa first.")
+            endif()
+        else()
+            message(FATAL_ERROR
+                "stinkytofu conversion sources not found at ${_st_conv_dir}; "
+                "cannot build rocisa bindings with stinkytofu backend")
+        endif()
+    endif()
+
     set_target_properties(_rocisa PROPERTIES
         LIBRARY_OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/rocisa"
         BUILD_RPATH "${_st_build_rpath}"
@@ -179,10 +231,13 @@ if(HIPBLASLT_BUNDLE_PYTHON_DEPS OR ROCISA_STANDALONE)
                     $<TARGET_FILE_DIR:_rocisa>
             )
         endif()
+    else()
+        # find_package(stinkytofu) may resolve to a non-system prefix (e.g.
+        # build_tmp/stinkytofu-install). Keep that directory in install-time
+        # runtime search paths so _rocisa can load libstinkytofu.so.
+        set_target_properties(_rocisa PROPERTIES INSTALL_RPATH "$<TARGET_FILE_DIR:stinkytofu>")
     endif()
-    # Installed stinkytofu is a standard ROCm library on the loader's search path (like
-    # libyaml behind PyYAML); _rocisa's DT_NEEDED resolves it from there, so no
-    # wheel-local copy or RPATH is needed in that case.
+    # For system-installed stinkytofu, the RUNPATH entry is harmless and simply unused.
     configure_file(
         "${CMAKE_CURRENT_SOURCE_DIR}/rocisa/__init__.py"
         "${CMAKE_CURRENT_BINARY_DIR}/rocisa/__init__.py"
