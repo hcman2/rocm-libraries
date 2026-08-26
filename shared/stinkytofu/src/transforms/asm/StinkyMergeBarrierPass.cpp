@@ -29,6 +29,7 @@
 
 #include "stinkytofu/analysis/AnalysisRegistration.hpp"
 #include "stinkytofu/analysis/LoopAnalysis.hpp"
+#include "stinkytofu/analysis/asm/BarrierOverlapAnalysis.hpp"
 #include "stinkytofu/core/BasicBlock.hpp"
 #include "stinkytofu/core/PassManager.hpp"
 #include "stinkytofu/ir/asm/StinkyAsmIR.hpp"
@@ -40,9 +41,10 @@
 // StinkyMergeBarrierPass
 // ======================
 // Runs immediately after StinkyDAGSchedulerPass. Within loop bodies it looks
-// for two (or more) barrier groups that the scheduler placed only a few cycles
-// apart and fuses them into a single group carrying the union of their memory
-// tokens, dropping the redundant second signal/wait pair.
+// for two (or more) barrier groups whose WMMA windows overlapped in Layer 2 of
+// CDNA5 scheduling and that landed only a few cycles apart. It fuses those into
+// a single group carrying the union of their memory tokens, dropping the
+// redundant second signal/wait pair.
 //
 // A legal "barrier group" is exactly one adjacent s_barrier_signal /
 // s_barrier_wait pair that shares the same non-empty LDS token set, e.g.:
@@ -50,8 +52,8 @@
 //   s_barrier_wait   -1   // token 0
 // Anything else (lone signal/wait, signal/.../wait with filler between, mismatched
 // tokens) is ignored. Two consecutive legal groups G1 (tokens T1) and G2 (tokens
-// T2) may merge only when T1 ≠ T2 and the modeled cycle-distance between them is
-// below the configured threshold.
+// T2) may merge only when T1 ≠ T2, Layer 2 recorded an overlap between the exact
+// groups, and their modeled cycle-distance is below the configured threshold.
 //
 // The merge never moves instructions: it only unions G2's tokens into G1's
 // barriers and drops G2's redundant signal/wait pair. That is correct precisely
@@ -188,10 +190,15 @@ void setMergedBarrierComment(StinkyInstruction* barrier,
 
 // Attempt to merge the two consecutive groups g1 (earlier) and g2 (later) inside
 // \p bb. Returns true on success (IR mutated). \p threshold is in cycles.
-bool tryMergePair(BasicBlock& bb, const BarrierGroup& g1, const BarrierGroup& g2, int threshold) {
+bool tryMergePair(BasicBlock& bb, const BarrierGroup& g1, const BarrierGroup& g2, int threshold,
+                  const BarrierOverlapInfo& overlapInfo) {
     // Only distinct token sets are merge candidates. Same-token consecutive
     // legal groups are successive syncs of one token and must both remain.
     if (g1.tokens == g2.tokens) return false;
+
+    // Layer 2 of CDNA5 scheduling must have identified these exact groups as
+    // overlapping. Nearby groups without that scheduler evidence stay intact.
+    if (!overlapInfo.groupsOverlap(g1.barriers, g2.barriers)) return false;
 
     const int dist = cycleDistance(g1.lastIt, g2.firstIt);
     if (dist >= threshold) return false;
@@ -224,13 +231,13 @@ bool tryMergePair(BasicBlock& bb, const BarrierGroup& g1, const BarrierGroup& g2
 
 // Repeatedly merge mergeable adjacent barrier-group pairs in \p bb until a fixed
 // point. Chained close groups collapse into one multi-token group.
-void mergeBarriersInBlock(BasicBlock& bb, int threshold) {
+void mergeBarriersInBlock(BasicBlock& bb, int threshold, const BarrierOverlapInfo& overlapInfo) {
     bool changed = true;
     while (changed) {
         changed = false;
         std::vector<BarrierGroup> groups = collectBarrierGroups(bb);
         for (size_t i = 0; i + 1 < groups.size(); ++i) {
-            if (tryMergePair(bb, groups[i], groups[i + 1], threshold)) {
+            if (tryMergePair(bb, groups[i], groups[i + 1], threshold, overlapInfo)) {
                 changed = true;
                 break;  // group layout changed; rebuild before continuing
             }
@@ -262,6 +269,9 @@ class StinkyMergeBarrierPass : public StinkyInstPass {
             return preserveCFGAnalyses();
         }
 
+        const auto* overlapInfo = AM.getCachedResult<BarrierOverlapAnalysis>();
+        if (overlapInfo == nullptr) return preserveCFGAnalyses();
+
         // Only touch loop-body basic blocks — the request targets the loop
         // interior, where the scheduler emits the repeated barrier groups.
         const auto& loops = AM.getResult<LoopAnalysis>(func);
@@ -274,7 +284,7 @@ class StinkyMergeBarrierPass : public StinkyInstPass {
         for (BasicBlock& bb : func) {
             if (!loopBodyBBs.count(&bb)) continue;
             if (!passCtx.shouldProcessBasicBlock(bb)) continue;
-            mergeBarriersInBlock(bb, threshold);
+            mergeBarriersInBlock(bb, threshold, *overlapInfo);
         }
         return preserveCFGAnalyses();
     }

@@ -29,6 +29,7 @@
 #include <queue>
 #include <vector>
 
+#include "stinkytofu/analysis/asm/BarrierOverlapAnalysis.hpp"
 #include "stinkytofu/core/Function.hpp"
 #include "stinkytofu/ir/asm/StinkyAsmIR.hpp"
 #include "stinkytofu/support/LoopDetection.hpp"
@@ -117,6 +118,7 @@ struct BBScheduleState {
 // When an AnalysisManager is added, this class moves there — same interface.
 class ScheduleAnalysisCache {
     std::map<BasicBlock*, BBScheduleState> bbStates_;
+    BarrierOverlapInfo barrierOverlaps_;
 
    public:
     void store(BasicBlock* bb, const BBScheduleState& state) {
@@ -126,6 +128,15 @@ class ScheduleAnalysisCache {
     const BBScheduleState* lookup(BasicBlock* bb) const {
         auto it = bbStates_.find(bb);
         return it != bbStates_.end() ? &it->second : nullptr;
+    }
+
+    void recordBarrierOverlap(const std::vector<StinkyInstruction*>& lhs,
+                              const std::vector<StinkyInstruction*>& rhs) {
+        barrierOverlaps_.recordGroupOverlap(lhs, rhs);
+    }
+
+    BarrierOverlapInfo takeBarrierOverlaps() {
+        return std::move(barrierOverlaps_);
     }
 };
 

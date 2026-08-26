@@ -2008,6 +2008,9 @@ void CDNA5ReadyQueue::onInitRegion(IRList::iterator regionStart, IRList::iterato
                 const bool overlap = (adjustedAfterBegin < adjustedBeforeEnd) &&
                                      (adjustedBeforeBegin <= adjustedAfterEnd);
                 if (overlap) {
+                    if (getAnalysisCache())
+                        getAnalysisCache()->recordBarrierOverlap(afterGroup.barriers,
+                                                                 beforeGroup.barriers);
                     int deltaAfter = (adjustedAfterEnd - adjustedBeforeBegin + 1) / 2 + 1;
                     int deltaBefore = (adjustedAfterEnd - adjustedBeforeBegin) / 2 + 1;
                     if ((adjustedBeforeBegin + deltaBefore + beforeGroup.window > totalWmma) &&

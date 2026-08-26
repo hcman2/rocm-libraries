@@ -27,6 +27,7 @@
 #include "stinkytofu/analysis/AnalysisRegistration.hpp"
 #include "stinkytofu/analysis/BBIndexAnalysis.hpp"
 #include "stinkytofu/analysis/LoopAnalysis.hpp"
+#include "stinkytofu/analysis/asm/BarrierOverlapAnalysis.hpp"
 #include "stinkytofu/analysis/controlflow/DominanceAnalysis.hpp"
 #include "stinkytofu/core/BasicBlock.hpp"
 #include "stinkytofu/core/PassManager.hpp"
@@ -552,7 +553,10 @@ class StinkyDAGSchedulerPass : public StinkyInstPass {
                 scheduleBlock(bb, *rq);
             }
         }
-        return preserveCFGAnalyses();
+        AM.setResult<BarrierOverlapAnalysis>(analysisCache.takeBarrierOverlaps());
+        PreservedAnalyses PA = preserveCFGAnalyses();
+        PA.preserve<BarrierOverlapAnalysis>();
+        return PA;
     }
 };
 

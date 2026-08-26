@@ -35,10 +35,11 @@ class Pass;
 /// Intended to run immediately after StinkyDAGSchedulerPass. A legal group is
 /// exactly an adjacent s_barrier_signal / s_barrier_wait pair with the same
 /// non-empty memory-token set. Two consecutive legal groups with *different*
-/// token sets may be fused when their modeled cycle-distance is below the merge
-/// threshold (PassFeatureConfig::DagFeatures::mergeBarrierThreshold, or the
-/// CDNA5 default when unset): the earlier pair absorbs the later tokens and the
-/// redundant second signal/wait pair is removed.
+/// token sets may be fused when CDNA5 scheduling Layer 2 recorded an overlap
+/// between them and their modeled cycle-distance is below the merge threshold
+/// (PassFeatureConfig::DagFeatures::mergeBarrierThreshold, or the CDNA5 default
+/// when unset): the earlier pair absorbs the later tokens and the redundant
+/// second signal/wait pair is removed.
 STINKYTOFU_EXPORT std::unique_ptr<Pass> createStinkyMergeBarrierPass();
 
 }  // namespace stinkytofu

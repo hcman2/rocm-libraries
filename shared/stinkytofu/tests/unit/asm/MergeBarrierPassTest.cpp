@@ -34,6 +34,7 @@
 
 #include "TestHelpers.hpp"
 #include "stinkytofu/analysis/AnalysisRegistration.hpp"
+#include "stinkytofu/analysis/asm/BarrierOverlapAnalysis.hpp"
 #include "stinkytofu/core/PassManager.hpp"
 #include "stinkytofu/ir/asm/StinkyAsmIR.hpp"
 #include "stinkytofu/ir/asm/StinkyModifiers.hpp"
@@ -90,7 +91,7 @@ class MergeBarrierPassTest : public ::testing::Test {
 
     // Run BuildImplicitDependency (to attach LDS pseudo tokens to barriers) then
     // MergeBarrier with the given cycle threshold (0 => pass default).
-    void runPasses(int mergeThreshold) {
+    void runPasses(int mergeThreshold, bool layer2Overlap = true) {
         PassContext ctx;
         ctx.setGemmTileConfig(config);
         PassFeatureConfig pfc;
@@ -100,6 +101,21 @@ class MergeBarrierPassTest : public ::testing::Test {
 
         auto implicitDep = createStinkyBuildImplicitDependencyPass();
         implicitDep->run(*func, ctx, am);
+
+        BarrierOverlapInfo overlapInfo;
+        if (layer2Overlap) {
+            std::vector<StinkyInstruction*> barriers;
+            for (IRBase& ir : *bb) {
+                auto* inst = dyn_cast<StinkyInstruction>(&ir);
+                if (inst && isBarrier(*inst)) barriers.push_back(inst);
+            }
+
+            for (size_t i = 0; i < barriers.size(); ++i) {
+                for (size_t j = i + 1; j < barriers.size(); ++j)
+                    overlapInfo.recordGroupOverlap({barriers[i]}, {barriers[j]});
+            }
+        }
+        am.setResult<BarrierOverlapAnalysis>(std::move(overlapInfo));
 
         auto mergePass = createStinkyMergeBarrierPass();
         mergePass->run(*func, ctx, am);
@@ -166,6 +182,18 @@ TEST_F(MergeBarrierPassTest, AdjacentGroupsMergeWithDefaultThreshold) {
     // Surviving barriers carry the union of both token sets.
     EXPECT_EQ(tokensOf(firstBarrier("s_barrier_signal")), (std::vector<int>{0, 1}));
     EXPECT_EQ(tokensOf(firstBarrier("s_barrier_wait")), (std::vector<int>{0, 1}));
+}
+
+TEST_F(MergeBarrierPassTest, GroupsWithoutLayer2OverlapDoNotMerge) {
+    createSignal(0);
+    createWait(0);
+    createSignal(1);
+    createWait(1);
+
+    runPasses(/*mergeThreshold=*/100000, /*layer2Overlap=*/false);
+
+    EXPECT_EQ(countByMnemonic("s_barrier_signal"), 2);
+    EXPECT_EQ(countByMnemonic("s_barrier_wait"), 2);
 }
 
 // Distance strictly below the threshold merges; equal-or-above does not.

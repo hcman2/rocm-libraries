@@ -234,6 +234,16 @@ TEST_F(AnalysisManagerTest, GetCachedResultHit) {
     EXPECT_EQ(cached->value, 42);
 }
 
+TEST_F(AnalysisManagerTest, SetResultPublishesTransformProducedAnalysis) {
+    AnalysisManager AM;
+    AM.setResult<CountingAnalysis>({17});
+
+    auto* cached = AM.getCachedResult<CountingAnalysis>();
+    ASSERT_NE(cached, nullptr);
+    EXPECT_EQ(cached->value, 17);
+    EXPECT_EQ(CountingAnalysis::runCount, 0);
+}
+
 // -----------------------------------------------------------------------
 // Invalidation
 // -----------------------------------------------------------------------

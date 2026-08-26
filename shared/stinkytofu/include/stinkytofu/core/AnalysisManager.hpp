@@ -214,6 +214,16 @@ class STINKYTOFU_EXPORT AnalysisManager {
         return static_cast<ModelT&>(*it->second).Result;
     }
 
+    /// Publish a result produced by a transform pass.
+    ///
+    /// This supports analyses whose data is a by-product of transformation and
+    /// therefore cannot be recomputed from the transformed Function alone.
+    template <typename AnalysisT>
+    void setResult(typename AnalysisT::Result result) {
+        using ModelT = AnalysisResultModel<AnalysisT, typename AnalysisT::Result>;
+        results_.insert_or_assign(AnalysisT::ID(), std::make_unique<ModelT>(std::move(result)));
+    }
+
     /// Get cached result only. Returns nullptr if not computed.
     template <typename AnalysisT>
     const typename AnalysisT::Result* getCachedResult() const {
