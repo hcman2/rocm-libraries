@@ -27,6 +27,7 @@
 #include <iostream>  // TODO: don't use iostream.
 #include <map>
 #include <queue>
+#include <utility>
 #include <vector>
 
 #include "stinkytofu/core/Function.hpp"
@@ -129,6 +130,11 @@ class ScheduleAnalysisCache {
     }
 };
 
+// A hard scheduling order requested by an architecture-specific ready queue.
+// first must be scheduled before second. The region scheduler validates and
+// materializes these as DAG edges before initializing the ready set.
+using SchedulingDependency = std::pair<StinkyInstruction*, StinkyInstruction*>;
+
 class ReadyQueue {
    public:
     explicit ReadyQueue(const PassContext& passCtx) : passCtx_(passCtx) {}
@@ -159,11 +165,15 @@ class ReadyQueue {
 
     // Hook called before scheduling each region. \p blockBegin is the start of the basic block
     // (prefix [blockBegin, regionStart) is visible for cross-region / preloop state).
+    // Derived queues may append hard instruction-order constraints to
+    // \p additionalDependencies; the scheduler applies cycle-safe DAG edges afterward.
     virtual void onInitRegion(IRList::iterator regionStart, IRList::iterator regionEnd,
-                              IRList::iterator blockBegin) {
+                              IRList::iterator blockBegin,
+                              std::vector<SchedulingDependency>& additionalDependencies) {
         (void)regionStart;
         (void)regionEnd;
         (void)blockBegin;
+        (void)additionalDependencies;
     }
 
     // Hook called after a basic block has been fully scheduled. When the queue is

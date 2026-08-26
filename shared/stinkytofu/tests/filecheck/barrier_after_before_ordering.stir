@@ -1,0 +1,60 @@
+# RUN: %stinkytofu-opt --arch gfx1250 %s --StinkyBuildImplicitDependencyPass --StinkyDAGSchedulerPass --print-output
+#
+# Token 0 is an after group (ds_load -> barrier), while token 1 is a before
+# group (barrier -> ds_load). Their WMMA placement windows overlap. Even though
+# token 1 becomes DAG-ready first, the complete token-0 barrier group must issue
+# before token 1 enters the barrier ready queue.
+#
+# CHECK-LABEL: st.func @enforce_order
+# CHECK: LDS0 = "st.s_barrier_signal"(-1, LDS0)
+# CHECK-NEXT: LDS0 = "st.s_barrier_wait"(-1, LDS0)
+# CHECK: LDS1 = "st.s_barrier_signal"(-1, LDS1)
+# CHECK-NEXT: LDS1 = "st.s_barrier_wait"(-1, LDS1)
+
+st.func @enforce_order() {
+^entry:
+  v[0:3] = "st.ds_load_b128"(v16) { issueCycles = 1, latencyCycles = 56, mod.ds = { na = 1, offset = 0, gds = false }, mod.memtoken = { tokens = [0] } }
+  "st.tensor_load_to_lds"(s[24:27], s[28:35]) { issueCycles = 1, latencyCycles = 1, mod.memtoken = { tokens = [2] } }
+  v[8:11] = "st.ds_load_b128"(v24) { issueCycles = 1, latencyCycles = 56, mod.ds = { na = 1, offset = 0, gds = false }, mod.memtoken = { tokens = [2] } }
+  "st.tensor_load_to_lds"(s[12:15], s[16:23]) { issueCycles = 1, latencyCycles = 1, mod.memtoken = { tokens = [1] } }
+  a[32:39] = "st.v_wmma_f32_16x16x32_bf16"(v[4:11], v[4:11], a[32:39]) { mod.mfma = { reuseA = false, reuseB = false } }
+  a[32:39] = "st.v_wmma_f32_16x16x32_bf16"(v[12:19], v[12:19], a[32:39]) { mod.mfma = { reuseA = false, reuseB = false } }
+  "st.s_barrier_signal"(-1) { issueCycles = 1, latencyCycles = 1, mod.memtoken = { tokens = [2] } }
+  "st.s_barrier_wait"(-1) { issueCycles = 1, latencyCycles = 1, mod.memtoken = { tokens = [2] } }
+  "st.s_barrier_signal"(-1) { issueCycles = 1, latencyCycles = 1, mod.memtoken = { tokens = [0] } }
+  "st.s_barrier_wait"(-1) { issueCycles = 1, latencyCycles = 1, mod.memtoken = { tokens = [0] } }
+  "st.s_barrier_signal"(-1) { issueCycles = 1, latencyCycles = 1, mod.memtoken = { tokens = [1] } }
+  "st.s_barrier_wait"(-1) { issueCycles = 1, latencyCycles = 1, mod.memtoken = { tokens = [1] } }
+  a[32:39] = "st.v_wmma_f32_16x16x32_bf16"(v[0:7], v[8:15], a[32:39]) { mod.mfma = { reuseA = false, reuseB = false } }
+  a[32:39] = "st.v_wmma_f32_16x16x32_bf16"(v[8:15], v[0:7], a[32:39]) { mod.mfma = { reuseA = false, reuseB = false } }
+  a[32:39] = "st.v_wmma_f32_16x16x32_bf16"(v[0:7], v[0:7], a[32:39]) { mod.mfma = { reuseA = false, reuseB = false } }
+  v[12:15] = "st.ds_load_b128"(v28) { issueCycles = 1, latencyCycles = 56, mod.ds = { na = 1, offset = 0, gds = false }, mod.memtoken = { tokens = [2] } }
+  "st.tensor_load_to_lds"(s[36:39], s[40:47]) { issueCycles = 1, latencyCycles = 1, mod.memtoken = { tokens = [2] } }
+  "st.tensor_load_to_lds"(s[0:3], s[4:11]) { issueCycles = 1, latencyCycles = 1, mod.memtoken = { tokens = [0] } }
+  v[4:7] = "st.ds_load_b128"(v20) { issueCycles = 1, latencyCycles = 8, mod.ds = { na = 1, offset = 0, gds = false }, mod.memtoken = { tokens = [1] } }
+}
+
+# A multi-token ds_load creates the existing path
+# token-1 barrier -> ds_load -> token-0 barrier. The requested reverse order
+# would form a cycle, so it must be skipped and the original DAG must drain.
+#
+# CHECK-LABEL: st.func @cycle_safe_skip
+# CHECK: LDS1 = "st.s_barrier_signal"(-1, LDS1)
+# CHECK-NEXT: LDS1 = "st.s_barrier_wait"(-1, LDS1)
+# CHECK: LDS0 = "st.s_barrier_signal"(-1, LDS0)
+# CHECK-NEXT: LDS0 = "st.s_barrier_wait"(-1, LDS0)
+
+st.func @cycle_safe_skip() {
+^entry:
+  "st.tensor_load_to_lds"(s[0:3], s[4:11]) { issueCycles = 1, latencyCycles = 1, mod.memtoken = { tokens = [1] } }
+  "st.s_barrier_signal"(-1) { issueCycles = 1, latencyCycles = 1, mod.memtoken = { tokens = [1] } }
+  "st.s_barrier_wait"(-1) { issueCycles = 1, latencyCycles = 1, mod.memtoken = { tokens = [1] } }
+  a[32:39] = "st.v_wmma_f32_16x16x32_bf16"(v[8:15], v[8:15], a[32:39]) { mod.mfma = { reuseA = false, reuseB = false } }
+  a[32:39] = "st.v_wmma_f32_16x16x32_bf16"(v[16:23], v[16:23], a[32:39]) { mod.mfma = { reuseA = false, reuseB = false } }
+  v[0:3] = "st.ds_load_b128"(v24) { issueCycles = 1, latencyCycles = 8, mod.ds = { na = 1, offset = 0, gds = false }, mod.memtoken = { tokens = [0, 1] } }
+  "st.s_barrier_signal"(-1) { issueCycles = 1, latencyCycles = 1, mod.memtoken = { tokens = [0] } }
+  "st.s_barrier_wait"(-1) { issueCycles = 1, latencyCycles = 1, mod.memtoken = { tokens = [0] } }
+  a[32:39] = "st.v_wmma_f32_16x16x32_bf16"(v[0:7], v[0:7], a[32:39]) { mod.mfma = { reuseA = false, reuseB = false } }
+  a[32:39] = "st.v_wmma_f32_16x16x32_bf16"(v[8:15], v[8:15], a[32:39]) { mod.mfma = { reuseA = false, reuseB = false } }
+  a[32:39] = "st.v_wmma_f32_16x16x32_bf16"(v[16:23], v[16:23], a[32:39]) { mod.mfma = { reuseA = false, reuseB = false } }
+}

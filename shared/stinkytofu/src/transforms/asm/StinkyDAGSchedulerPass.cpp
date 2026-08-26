@@ -48,6 +48,26 @@ namespace {
 using namespace stinkytofu;
 using namespace stinkytofu::dag;
 
+static bool hasDAGPath(unsigned fromId, unsigned toId,
+                       const std::vector<std::unordered_set<unsigned>>& graph) {
+    if (fromId == toId) return true;
+    std::vector<unsigned> worklist{fromId};
+    std::vector<bool> visited(graph.size(), false);
+    visited[fromId] = true;
+    while (!worklist.empty()) {
+        const unsigned current = worklist.back();
+        worklist.pop_back();
+        for (unsigned successor : graph[current]) {
+            if (successor == toId) return true;
+            if (!visited[successor]) {
+                visited[successor] = true;
+                worklist.push_back(successor);
+            }
+        }
+    }
+    return false;
+}
+
 // collapseExecMaskedRegions()/expandExecMaskedGroups(): see ExecMaskGrouping.hpp and
 // docs/developer/exec-mask-grouping.md.
 
@@ -322,9 +342,31 @@ static void scheduleRegionWithMovableSideEffects(
         if (!dagNodes[i].hazardFlags.empty()) dagNodes[i].hazardDeadline = bestDeadline;
     }
 
-    PASS_DEBUG(dag::dumpDAGGraph(regionDag, std::cerr));
+    std::vector<SchedulingDependency> additionalDependencies;
+    readyQueue.onInitRegion(regionStart, regionEnd, blockBegin, additionalDependencies);
+    for (const auto& [predecessor, successor] : additionalDependencies) {
+        auto predIt = instToId.find(predecessor);
+        auto succIt = instToId.find(successor);
+        if (predIt == instToId.end() || succIt == instToId.end()) {
+            PASS_DEBUG(std::cerr << "[DAG ordering constraint] skip endpoints outside region\n");
+            continue;
+        }
 
-    readyQueue.onInitRegion(regionStart, regionEnd, blockBegin);
+        const unsigned predId = predIt->second;
+        const unsigned succId = succIt->second;
+        // A successor-to-predecessor path means this edge would close a cycle.
+        // Preserve the original DAG in that case, as requested by the queue policy.
+        if (hasDAGPath(succId, predId, dagGraph)) {
+            PASS_DEBUG(std::cerr << "[DAG ordering constraint] skip cycle dagId=" << predId
+                                 << " -> " << succId << "\n");
+            continue;
+        }
+        addEdgeById(&dagNodes[predId], &dagNodes[succId], dagGraph);
+        PASS_DEBUG(std::cerr << "[DAG ordering constraint] add dagId=" << predId << " -> " << succId
+                             << "\n");
+    }
+
+    PASS_DEBUG(dag::dumpDAGGraph(regionDag, std::cerr));
 
     // Kahn's algorithm with stable pick (by original order)
 

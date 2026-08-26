@@ -547,6 +547,13 @@ class CDNA5ReadyQueue : public ReadyQueue {
     // the producer to issue now, through its own NonWmmaFill phase, so it lands before
     // its hazarded consumer needs the gap instead of after).
     void decidePromote();
+    bool hasPendingThresholdBarrier() const {
+        for (const auto& [barrier, threshold] : barrierWmmaThresholds_) {
+            (void)barrier;
+            if (threshold >= 0 && wmmaIssuedCountThisRegion_ >= threshold) return true;
+        }
+        return false;
+    }
     bool isPromote(PromotePhase phase) const {
         return promotedPhase_ == PromotePhase::None || promotedPhase_ == phase;
     }
@@ -592,7 +599,8 @@ class CDNA5ReadyQueue : public ReadyQueue {
     void onInit(IRList::iterator regionStart, IRList::iterator regionEnd) override;
 
     void onInitRegion(IRList::iterator regionStart, IRList::iterator regionEnd,
-                      IRList::iterator blockBegin) override;
+                      IRList::iterator blockBegin,
+                      std::vector<SchedulingDependency>& additionalDependencies) override;
 
     void onFinishBB() override;
 };
@@ -1604,6 +1612,7 @@ DAGNode* CDNA5ReadyQueue::pickOne() {
         const bool hasPickableNonWmma =
             findSmallestPickableNonWmma(pickedDS, &smallestPickable, &pickKind);
 
+        const bool blockWmmaForPendingBarrier = hasPendingThresholdBarrier();
         const bool blockWmmaForLoopHeadBalance =
             deferHeadBalanceThisRegion_ && deferFirstHeadWmmaActive_ && otherQueuesHaveWork;
         const bool blockWmmaForActiveWindow =
@@ -1623,6 +1632,7 @@ DAGNode* CDNA5ReadyQueue::pickOne() {
         }
         PASS_DEBUG(std::cerr << "[CDNA5 pickOne] Phase B candidate wmmaId=" << bestWMMA->id
                              << " bestLatency=" << bestLatency
+                             << " blockPendingBarrier=" << blockWmmaForPendingBarrier
                              << " blockLoopHead=" << blockWmmaForLoopHeadBalance
                              << " blockActiveWindow=" << blockWmmaForActiveWindow
                              << " blockAtLeastOneNonWmmaInterleaving="
@@ -1633,8 +1643,9 @@ DAGNode* CDNA5ReadyQueue::pickOne() {
                              << (smallestPickable ? std::to_string(smallestPickable->id)
                                                   : std::string("none"))
                              << "\n");
-        if (bestLatency <= 0 && !blockWmmaForLoopHeadBalance && !blockWmmaForActiveWindow &&
-            !blockWmmaForAtLeastOneNonWmmaInterleaving && !blockWmmaForCoexecSpacing) {
+        if (bestLatency <= 0 && !blockWmmaForPendingBarrier && !blockWmmaForLoopHeadBalance &&
+            !blockWmmaForActiveWindow && !blockWmmaForAtLeastOneNonWmmaInterleaving &&
+            !blockWmmaForCoexecSpacing) {
             DAGNode* node = pickOneFromWMMA(bestWMMA);
             PASS_DEBUG(std::cerr << "[CDNA5 pickOne] Phase B picked WMMA dagId=" << node->id
                                  << "\n");
@@ -1686,7 +1697,8 @@ DAGNode* CDNA5ReadyQueue::pickOne() {
     }
 
     // Phase E — forced WMMA: pick the most-ready WMMA before barriers.
-    if (isPromote(PromotePhase::ForcedWmma) && !wmmaQueue.empty()) {
+    if (isPromote(PromotePhase::ForcedWmma) && !wmmaQueue.empty() &&
+        !hasPendingThresholdBarrier()) {
         auto [bestWMMA, bestLatency] = findMostReadyWMMA();
         (void)bestLatency;
         DAGNode* node = pickOneFromWMMA(bestWMMA);
@@ -1698,18 +1710,36 @@ DAGNode* CDNA5ReadyQueue::pickOne() {
     // that exact node (formerly the forced-barrier phase ahead of WMMA). Otherwise this
     // is the drain case: issue the lowest-id barrier once all compute has been picked.
     if (isPromote(PromotePhase::Barrier) && !barrierQueue.empty()) {
-        DAGNode* barrier;
+        DAGNode* barrier = nullptr;
         if (promotedPhase_ == PromotePhase::Barrier) {
             barrier = extractForcedBarrier();  // removes the promoted (threshold-met) node
         } else {
-            barrier = barrierQueue.top();
-            barrierQueue.pop();
+            // Drain non-promoted barriers only when *all* compute queues are truly empty.
+            // This prevents early barrier issue when WMMA is only temporarily blocked
+            // (e.g. by threshold gating) but still has pending work in queue.
+            const bool canDrainBarriers = wmmaQueue.empty() && globalReadQueue.empty() &&
+                                          localReadQueue.empty() && otherQueue.empty() &&
+                                          valuQueue.empty();
+            if (!canDrainBarriers) {
+                PASS_DEBUG(std::cerr << "[CDNA5 pickOne] defer non-promoted barrier drain"
+                                     << " wmmaQ=" << wmmaQueue.size()
+                                     << " globalReadQ=" << globalReadQueue.size() << " localReadQ="
+                                     << localReadQueue.size() << " otherQ=" << otherQueue.size()
+                                     << " valuQ=" << valuQueue.size() << "\n");
+            } else {
+                barrier = barrierQueue.top();
+                barrierQueue.pop();
+            }
         }
-        updateWMMAStatus(barrier);
-        PASS_DEBUG(std::cerr << "[DAG CDNA5 pickOne] barrier dagId=" << barrier->id
-                             << " promoted=" << (promotedPhase_ == PromotePhase::Barrier) << "\n";
-                   barrier->inst->dump(std::cerr); std::cerr << "\n");
-        return rememberPick(barrier);
+        if (barrier) {
+            updateWMMAStatus(barrier);
+            barrierWmmaThresholds_.erase(barrier->inst);
+            PASS_DEBUG(std::cerr << "[DAG CDNA5 pickOne] barrier dagId=" << barrier->id
+                                 << " promoted=" << (promotedPhase_ == PromotePhase::Barrier)
+                                 << "\n";
+                       barrier->inst->dump(std::cerr); std::cerr << "\n");
+            return rememberPick(barrier);
+        }
     }
 
     // Phase G — final safety net: force-pick the least-blocked ready node to
@@ -1864,7 +1894,8 @@ void CDNA5ReadyQueue::onFinishBB() {
 // Rule (2): seedWmmaDsLatencyFromPrefix. Rule (5): head balance.
 // Barrier thresholds: computeBarrierAfterThresholds / computeBarrierBeforeThresholds.
 void CDNA5ReadyQueue::onInitRegion(IRList::iterator regionStart, IRList::iterator regionEnd,
-                                   IRList::iterator blockBegin) {
+                                   IRList::iterator blockBegin,
+                                   std::vector<SchedulingDependency>& additionalDependencies) {
     wmmaIssuedCountThisRegion_ = 0;
     dsInsertedSinceLastWmma_ = 0;
     lastPickedNode_ = nullptr;
@@ -2012,8 +2043,9 @@ void CDNA5ReadyQueue::onInitRegion(IRList::iterator regionStart, IRList::iterato
                     int deltaBefore = (adjustedAfterEnd - adjustedBeforeBegin) / 2 + 1;
                     if ((adjustedBeforeBegin + deltaBefore + beforeGroup.window > totalWmma) &&
                         (adjustedAfterEnd - deltaAfter > afterGroup.window)) {
-                        const int targetBefore =
-                            totalWmma - adjustedBeforeBegin - beforeGroup.window;
+                        int targetBefore = totalWmma - adjustedBeforeBegin - beforeGroup.window;
+                        const int targetAfter = adjustedAfterEnd - deltaAfter - afterGroup.window;
+                        targetBefore = targetBefore * targetBefore / (targetBefore + targetAfter);
                         deltaAfter += deltaBefore - targetBefore;
                         deltaBefore = targetBefore;
                     }
@@ -2097,6 +2129,7 @@ void CDNA5ReadyQueue::onInitRegion(IRList::iterator regionStart, IRList::iterato
         // barrier_signal/barrier_wait pair shares one threshold.
         normalizeBarrierPairs(/*useSrcTokens=*/true);
         normalizeBarrierPairs(/*useSrcTokens=*/false);
+        (void)additionalDependencies;
     }
 }
 }  // namespace
