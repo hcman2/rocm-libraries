@@ -2010,13 +2010,6 @@ void CDNA5ReadyQueue::onInitRegion(IRList::iterator regionStart, IRList::iterato
                 if (overlap) {
                     int deltaAfter = (adjustedAfterEnd - adjustedBeforeBegin + 1) / 2 + 1;
                     int deltaBefore = (adjustedAfterEnd - adjustedBeforeBegin) / 2 + 1;
-                    if ((adjustedBeforeBegin + deltaBefore + beforeGroup.window > totalWmma) &&
-                        (adjustedAfterEnd - deltaAfter > afterGroup.window)) {
-                        const int targetBefore =
-                            totalWmma - adjustedBeforeBegin - beforeGroup.window;
-                        deltaAfter += deltaBefore - targetBefore;
-                        deltaBefore = targetBefore;
-                    }
                     adjustedAfterEnd = std::clamp(adjustedAfterEnd - deltaAfter, 0, totalWmma);
                     adjustedBeforeBegin =
                         std::clamp(adjustedBeforeBegin + deltaBefore, 0, totalWmma);
