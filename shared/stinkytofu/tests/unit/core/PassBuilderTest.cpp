@@ -153,6 +153,15 @@ TEST(PassBuilderTest, CreateUnknownPassReturnsNull) {
 
 // --- PluginData on StinkyAsmModule ---
 
+TEST(ModuleOptionsTest, TDMBarrierRebuildDefaultsEnabledButIneligible) {
+    StinkyAsmModule::ModuleOptions opts{};
+    EXPECT_TRUE(opts.EnableTDMBarrierRebuild);
+    EXPECT_FALSE(opts.TDMBarrierRebuildEligible);
+
+    opts.EnableTDMBarrierRebuild = false;
+    EXPECT_FALSE(opts.EnableTDMBarrierRebuild);
+}
+
 TEST(PluginDataTest, SetAndGetI64) {
     StinkyAsmModule::ModuleOptions opts{};
     StinkyAsmModule module("test", {12, 5, 0}, opts);

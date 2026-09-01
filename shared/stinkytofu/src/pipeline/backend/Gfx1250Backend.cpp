@@ -51,6 +51,7 @@
 #include "stinkytofu/transforms/asm/InsertWaitAluPass.hpp"
 #include "stinkytofu/transforms/asm/LoopRegionRemarkPass.hpp"
 #include "stinkytofu/transforms/asm/MemTokenConsistencyCheckPass.hpp"
+#include "stinkytofu/transforms/asm/RebuildTDMBarrierPass.hpp"
 #include "stinkytofu/transforms/asm/RegionClonePass.hpp"
 #include "stinkytofu/transforms/asm/RemoveDelayAluPass.hpp"
 #include "stinkytofu/transforms/asm/RemoveDscntPass.hpp"
@@ -97,6 +98,10 @@ void addGfx1250RegionPasses(PassManager& pm, const StinkyAsmModule& module, OptL
         pm.addPass(createStinkyRemoveWaitCntPass(removeOptions));
         pm.addPass(createStinkyRemoveNopPass());
     }
+
+    const auto& moduleOptions = module.getModuleOptions();
+    if (moduleOptions.EnableTDMBarrierRebuild && moduleOptions.TDMBarrierRebuildEligible)
+        pm.addPass(createRebuildTDMBarrierPass(moduleOptions.PrefetchGlobalRead < 2));
 
     // addPeepholeOptPasses(pm, optLevel);
 

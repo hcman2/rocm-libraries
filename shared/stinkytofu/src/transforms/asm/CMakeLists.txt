@@ -34,6 +34,7 @@ target_sources(stinkytofu_objs PRIVATE
     StinkyBuildImplicitDependencyPass.cpp
     RegionClonePass.cpp
     MemTokenConsistencyCheckPass.cpp
+    RebuildTDMBarrierPass.cpp
     InsertVgprMsbPass.cpp
     InsertInitialUnclausedVmemPass.cpp
     InsertClusterBarrierPass.cpp

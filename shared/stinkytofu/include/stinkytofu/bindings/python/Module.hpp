@@ -79,6 +79,8 @@
     X(EnableRemarks, bool)                        \
     X(EnableWaitCntInsertion, bool)               \
     X(EnableLoopCarriedTokenDeps, bool)           \
+    X(EnableTDMBarrierRebuild, bool)              \
+    X(TDMBarrierRebuildEligible, bool)            \
     X(EnableESM2, bool)                           \
     X(EnableESM2TrackValuVsrc, bool)              \
     X(VgprMsbMode, int)                           \
@@ -143,6 +145,8 @@ class STINKYTOFU_EXPORT StinkyAsmModule {
 #define GEN_MEMBER_OPTION(name, type) type name{};
         MODULE_OPTIONS_LIST(GEN_MEMBER_OPTION)
 #undef GEN_MEMBER_OPTION
+
+        ModuleOptions() : EnableTDMBarrierRebuild(true) {}
     };
 
     /**
