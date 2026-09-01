@@ -202,12 +202,52 @@ int runBackendPipelineAndCountBarriers(bool enabled) {
     return signals;
 }
 
+int runBackendPipelineLoopAndCountBarriers(int prefetchGlobalRead) {
+    StinkyAsmModule::ModuleOptions opts{};
+    opts.OptLevel = 3;
+    opts.PrefetchGlobalRead = prefetchGlobalRead;
+    opts.EnableWaitCntInsertion = false;
+    opts.EnableTDMBarrierRebuild = true;
+    opts.TDMBarrierRebuildEligible = true;
+    StinkyAsmModule module("pipeline_pgr_test", {12, 5, 0}, opts);
+    module.addGroup("loopWithPrefetch");
+    module.addGroup("noLoadLoopBody");
+
+    const std::string groupName = "loopWithPrefetch";
+    const std::vector<const std::string*> groups = {&groupName};
+    BasicBlock* bb = module.getFunction().getEntryBlock();
+    const size_t beforeLoop = bb->size();
+    AsmIRBuilder builder(*bb, GfxArchID::Gfx1250);
+    builder.createLabel("loop");
+    createDSLoadInBlock(bb, GfxArchID::Gfx1250, 0, 8, {7});
+    createTensorLoadInBlock(bb, GfxArchID::Gfx1250, 0, 4, {7});
+    StinkyInstruction* branch = builder.create(getMCIDByUOp(GFX::s_branch, GfxArchID::Gfx1250));
+    branch->addSrcReg(StinkyRegister(std::string("loop")));
+    branch->addModifier<LabelData>(LabelData{"loop"});
+    module.updateInstructionGroups(groups, beforeLoop);
+
+    module.runOptimizationPipeline();
+
+    int signals = 0;
+    for (const BasicBlock& block : module.getFunction())
+        for (const IRBase& ir : block) {
+            const auto* inst = dyn_cast<StinkyInstruction>(&ir);
+            if (inst != nullptr && inst->getUnifiedOpcode() == GFX::s_barrier_signal) ++signals;
+        }
+    return signals;
+}
+
 TEST(RebuildTDMBarrierPipelineTest, ModuleOptionEnablesEligiblePass) {
     EXPECT_EQ(runBackendPipelineAndCountBarriers(true), 1);
 }
 
 TEST(RebuildTDMBarrierPipelineTest, ModuleOptionDisablesEligiblePass) {
     EXPECT_EQ(runBackendPipelineAndCountBarriers(false), 0);
+}
+
+TEST(RebuildTDMBarrierPipelineTest, PGRControlsLoopBackEdgeModeling) {
+    EXPECT_EQ(runBackendPipelineLoopAndCountBarriers(1), 2);
+    EXPECT_EQ(runBackendPipelineLoopAndCountBarriers(2), 1);
 }
 
 }  // namespace

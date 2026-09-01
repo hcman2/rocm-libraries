@@ -115,6 +115,10 @@ void transferBlock(const BasicBlock& bb, TokenState& state) {
         const uint8_t phase = classifyAccess(*inst);
         if (phase == Standby) {
             if (isTokenMemoryCandidate(*inst)) {
+                // Eligible TDM loop regions must not contain token-bearing DS
+                // atomics or global_store_async_from_lds instructions. Their
+                // read/write semantics are outside this pass's phase model, so
+                // fail fast if that pipeline invariant is violated.
                 report_fatal_error("RebuildTDMBarrierPass: token-bearing memory instruction '" +
                                    std::string(inst->getHwInstDesc()->mnemonic) +
                                    "' has no read/write phase classification");
