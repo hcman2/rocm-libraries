@@ -731,6 +731,8 @@ WaitCountSpec mergePlanAndComputed(const WaitInsertionPlan& plan, StinkyInstruct
         CounterKind c = static_cast<CounterKind>(ci);
         int planned = inPlan ? getCounterField(pit->second, c) : WaitCountSpec::kUnused;
         int comp = computed[ci];
+        const bool policyOverride =
+            inPlan && c == CK_Tensor && pit->second.tensorCountIsPolicyOverride;
 
         // The optimizer's planned wait is a FLOOR (we must emit at least
         // that strong a drain), but the freshly recomputed requirement may
@@ -738,15 +740,23 @@ WaitCountSpec mergePlanAndComputed(const WaitInsertionPlan& plan, StinkyInstruct
         // (smallest) of the two so a relaxed planned value can never mask a
         // tighter residual the consumer actually needs -- otherwise the
         // drain slips to a later instruction and the first consumer of a
-        // freshly produced operand runs unguarded.
+        // freshly produced operand runs unguarded. A deliberate tensor policy
+        // override is the exception: replay must model the same relaxed count
+        // that will be emitted so its residual reaches downstream consumers.
         int w = WaitCountSpec::kUnused;
-        if (planned != WaitCountSpec::kUnused) w = planned;
-        if (comp != WaitCountSpec::kUnused && (w == WaitCountSpec::kUnused || comp < w)) w = comp;
+        if (policyOverride) {
+            w = planned;
+        } else {
+            if (planned != WaitCountSpec::kUnused) w = planned;
+            if (comp != WaitCountSpec::kUnused && (w == WaitCountSpec::kUnused || comp < w))
+                w = comp;
+        }
 
         if (w == WaitCountSpec::kUnused) continue;
         if (!emit[c].needsNewWait(w)) continue;
 
         setCounterField(applySpec, c, w);
+        if (policyOverride) applySpec.tensorCountIsPolicyOverride = true;
         emit[c].recordEmittedWait(w);
     }
     return applySpec;

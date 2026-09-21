@@ -311,6 +311,42 @@ st.func @test_3ldsb_tensor_window() {
     EXPECT_EQ(tokens->tokens, std::vector<int>({2}));
 }
 
+TEST_F(WaitCntInsertionTest, RelaxedLoopCarriedBarrierPreservesTensorStateForLaterBarrier) {
+    std::string irString = R"(
+st.func @test_3ldsb_tensor_window_downstream() {
+^entry:
+  LDS1 = "st.tensor_load_to_lds"(s[0:3], s[10:17]) { issueCycles = 1, latencyCycles = 1, mod.memtoken = { tokens = [1] } }
+  LDS2 = "st.tensor_load_to_lds"(s[0:3], s[18:25]) { issueCycles = 1, latencyCycles = 1, mod.memtoken = { tokens = [2] } }
+  LDS2 = "st.s_barrier_signal"(-1, LDS2) { issueCycles = 1, latencyCycles = 2, mod.memtoken = { tokens = [2] } }
+  LDS2 = "st.s_barrier_wait"(-1, LDS2) { issueCycles = 1, latencyCycles = 1, mod.memtoken = { tokens = [2] }, mod.loopcarriedwar = { tokens = [0], distance = 1 } }
+  LDS1 = "st.s_barrier_signal"(-1, LDS1) { issueCycles = 1, latencyCycles = 2, mod.memtoken = { tokens = [1] } }
+  LDS1 = "st.s_barrier_wait"(-1, LDS1) { issueCycles = 1, latencyCycles = 1, mod.memtoken = { tokens = [1] } }
+}
+)";
+
+    StinkyIRConverter converter(getArch());
+    auto* func = parseIR(irString, converter);
+    ASSERT_NE(func, nullptr);
+
+    WaitCntInsertionOptions options;
+    options.loopCarriedTensorLoadsToKeep = 2;
+    runInsertionPass(*func, options);
+
+    BasicBlock& entryBB = *func->begin();
+    StinkyInstruction* firstSignal = findNthInst(entryBB, GFX::s_barrier_signal, 0);
+    StinkyInstruction* secondSignal = findNthInst(entryBB, GFX::s_barrier_signal, 1);
+    ASSERT_NE(firstSignal, nullptr);
+    ASSERT_NE(secondSignal, nullptr);
+
+    SWaitTensorCntData* relaxedWait = findTensorWaitCntBefore(entryBB, firstSignal);
+    ASSERT_NE(relaxedWait, nullptr);
+    EXPECT_EQ(relaxedWait->tlcnt, 2);
+
+    SWaitTensorCntData* downstreamWait = findTensorWaitCntBefore(entryBB, secondSignal);
+    ASSERT_NE(downstreamWait, nullptr);
+    EXPECT_EQ(downstreamWait->tlcnt, 1);
+}
+
 // ============================================================================
 // Test Suite 2: DS Read Insertion before WMMA
 //

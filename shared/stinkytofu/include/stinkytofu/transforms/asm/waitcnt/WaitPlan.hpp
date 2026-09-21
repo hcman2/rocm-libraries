@@ -48,6 +48,13 @@ struct WaitCountSpec {
     int tensorCount = kUnused;  // tlcnt -> s_wait_tensorcnt
     int asyncCount = kUnused;   // asynccnt -> s_wait_asynccnt
 
+    // A pass policy may deliberately keep more tensor operations in flight
+    // than the dependency-derived count. Such an override is authoritative
+    // during finalizePlan replay; otherwise the freshly recomputed dependency
+    // would immediately tighten the count again and the replay would model a
+    // stronger drain than the instruction eventually emitted.
+    bool tensorCountIsPolicyOverride = false;
+
     // Memory tokens of the tensor_load ops this tensorcnt wait drains (union,
     // sorted-unique). Attached to the emitted s_wait_tensorcnt as MemTokenData so
     // later passes (e.g. TDMLoadWaveSyncPass) can identify the drained wait group.
