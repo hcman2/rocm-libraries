@@ -101,7 +101,7 @@ struct DAGNode {
     unsigned sccChainId = 0;
     unsigned sccChainReaders = 0;  // def node only
     bool sccChainDef = false;
-    // kRule3CrossLoop false: INT_MIN. true: live-out SCC def lead floor.
+    // Rule 3 cross-loop false: INT_MIN. true: live-out SCC def lead floor.
     int earliestClock = INT_MIN;
 
     DAGNode(StinkyInstruction* inst, unsigned id) : inst(inst), inDegree(0), id(id) {}
@@ -184,6 +184,10 @@ class ReadyQueue {
     // scheduler follows the pre-cluster-barrier path.
     bool clusterBarrierEnabled() const {
         return passCtx_.getPassFeatureConfig().dagFeatures.clusterBarrier;
+    }
+
+    bool clusterBarrierRule3CrossLoopEnabled() const {
+        return passCtx_.getPassFeatureConfig().dagFeatures.clusterBarrierRule3CrossLoop;
     }
 
     virtual ~ReadyQueue() = default;

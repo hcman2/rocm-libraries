@@ -245,9 +245,11 @@ const std::vector<PassInfo> availablePasses = {
          for (const auto& arg : args) {
              if (arg.starts_with(prefix))
                  return createWaitAwareScheduleRepairPass(
-                     std::atoi(arg.substr(prefix.size()).c_str()));
+                     std::atoi(arg.substr(prefix.size()).c_str()),
+                     hasPassArg(args, "preserve3LdsbTensorOrder"));
          }
-         return createWaitAwareScheduleRepairPass(kDefaultSlotsToMovePastAnchor);
+         return createWaitAwareScheduleRepairPass(
+             kDefaultSlotsToMovePastAnchor, hasPassArg(args, "preserve3LdsbTensorOrder"));
      }},
     // BuildUseDefChainPass accepts:
     //   includePseudo    — also build chains for pseudo registers (memtokens)

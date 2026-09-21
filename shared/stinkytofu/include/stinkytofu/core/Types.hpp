@@ -108,6 +108,9 @@ struct PassFeatureConfig {
         /// CDNA5ReadyQueue paths that enforce it (see
         /// ReadyQueue::clusterBarrierEnabled).
         bool clusterBarrier = false;
+        /// Allow Rule 3 placement to cross the loop back edge. Set per kernel
+        /// for rotating 3LDSB.
+        bool clusterBarrierRule3CrossLoop = false;
     };
 
     LoopConfig loopConfig;

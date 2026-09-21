@@ -141,14 +141,34 @@ bool isHardBoundary(const StinkyInstruction& inst,
     return false;
 }
 
+// In 3LDSB mode, wait repair is a second scheduler and must not discard the
+// primary scheduler's deliberate placement of a loop-carried tensor load ahead
+// of an LDS-read/WMMA burst. Preserve that established order while still
+// allowing unrelated instructions to refill wait windows. Barriers are already
+// protected by isHardBoundary().
+void addTensorScheduleOrderEdges(RegionDAG& dag,
+                                 const std::vector<StinkyInstruction*>& instructions) {
+    for (unsigned tensorId = 0; tensorId < instructions.size(); ++tensorId) {
+        if (!isTensorLoad(*instructions[tensorId])) continue;
+        for (unsigned successorId = tensorId + 1; successorId < instructions.size();
+             ++successorId) {
+            StinkyInstruction& successor = *instructions[successorId];
+            if (!isDSRead(successor) && !isMatrixInstruction(successor)) continue;
+            addEdgeById(&dag.nodes[tensorId], &dag.nodes[successorId], dag.graph);
+        }
+    }
+}
+
 std::vector<StinkyInstruction*> repairSegment(const std::vector<StinkyInstruction*>& instructions,
                                               const WaitAnchorMap& anchors,
                                               const PassContext& passCtx,
-                                              unsigned slotsToMovePastAnchor) {
+                                              unsigned slotsToMovePastAnchor,
+                                              bool preserve3LdsbTensorOrder) {
     if (instructions.empty()) return {};
 
     RegionDAG dag = buildRegisterDependencyDAG(instructions);
     addCounterOrderEdges(dag, instructions, anchors);
+    if (preserve3LdsbTensorOrder) addTensorScheduleOrderEdges(dag, instructions);
 
     WaitAnchoredReadyQueue queue(passCtx, anchors, dag, slotsToMovePastAnchor);
     std::vector<StinkyInstruction*> scheduled = scheduleWithWaitAnchoredReadyQueue(dag, queue);
@@ -166,7 +186,8 @@ void emitInstWithWaits(std::vector<IRBase*>& output, StinkyInstruction* inst,
     output.push_back(inst);
 }
 
-void repairBlock(BasicBlock& bb, const PassContext& passCtx, unsigned slotsToMovePastAnchor) {
+void repairBlock(BasicBlock& bb, const PassContext& passCtx, unsigned slotsToMovePastAnchor,
+                 bool preserve3LdsbTensorOrder) {
     const WaitAnchorMap anchors = discoverWaitAnchors(bb);
     // Without a wait-anchored WMMA there is nothing for this pass to repair.
     if (anchors.empty()) return;
@@ -181,8 +202,8 @@ void repairBlock(BasicBlock& bb, const PassContext& passCtx, unsigned slotsToMov
 
     auto flushSegment = [&]() {
         if (segment.empty()) return;
-        const std::vector<StinkyInstruction*> repaired =
-            repairSegment(segment, anchors, passCtx, slotsToMovePastAnchor);
+        const std::vector<StinkyInstruction*> repaired = repairSegment(
+            segment, anchors, passCtx, slotsToMovePastAnchor, preserve3LdsbTensorOrder);
         for (StinkyInstruction* inst : repaired) emitInstWithWaits(output, inst, anchors);
         segment.clear();
     };
@@ -219,8 +240,9 @@ class WaitAwareScheduleRepairPass : public StinkyInstPass {
    public:
     static char ID;
 
-    explicit WaitAwareScheduleRepairPass(int kSlotsToMovePastAnchor)
-        : kSlotsToMovePastAnchor_(kSlotsToMovePastAnchor) {}
+    WaitAwareScheduleRepairPass(int kSlotsToMovePastAnchor, bool preserve3LdsbTensorOrder)
+        : kSlotsToMovePastAnchor_(kSlotsToMovePastAnchor),
+          preserve3LdsbTensorOrder_(preserve3LdsbTensorOrder) {}
 
     const char* getName() const override {
         return "WaitAwareScheduleRepairPass";
@@ -244,7 +266,8 @@ class WaitAwareScheduleRepairPass : public StinkyInstPass {
 
             AsmIRBuilder builder(bb, archId);
             collapseExecMaskedRegions(bb, builder, wavefrontSize);
-            repairBlock(bb, passCtx, static_cast<unsigned>(kSlotsToMovePastAnchor_));
+            repairBlock(bb, passCtx, static_cast<unsigned>(kSlotsToMovePastAnchor_),
+                        preserve3LdsbTensorOrder_);
             expandExecMaskedGroups(bb);
         }
         return PreservedAnalyses::none();
@@ -252,6 +275,7 @@ class WaitAwareScheduleRepairPass : public StinkyInstPass {
 
    private:
     int kSlotsToMovePastAnchor_;
+    bool preserve3LdsbTensorOrder_;
 };
 
 char WaitAwareScheduleRepairPass::ID = 0;
@@ -260,8 +284,10 @@ char WaitAwareScheduleRepairPass::ID = 0;
 
 namespace stinkytofu {
 
-std::unique_ptr<Pass> createWaitAwareScheduleRepairPass(int kSlotsToMovePastAnchor) {
-    return std::make_unique<WaitAwareScheduleRepairPass>(kSlotsToMovePastAnchor);
+std::unique_ptr<Pass> createWaitAwareScheduleRepairPass(int kSlotsToMovePastAnchor,
+                                                        bool preserve3LdsbTensorOrder) {
+    return std::make_unique<WaitAwareScheduleRepairPass>(kSlotsToMovePastAnchor,
+                                                         preserve3LdsbTensorOrder);
 }
 
 }  // namespace stinkytofu

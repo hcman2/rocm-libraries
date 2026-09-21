@@ -40,7 +40,6 @@
 #include "stinkytofu/support/LoopDetection.hpp"
 #include "stinkytofu/transforms/asm/BuildDefUseChain.hpp"
 #include "stinkytofu/transforms/asm/ExecMaskGrouping.hpp"
-#include "stinkytofu/transforms/asm/InsertClusterBarrierPass.hpp"
 
 // Before dag/CDNA*.hpp so PASS_DEBUG inside those headers uses this pass name.
 #define DEBUG_TYPE "StinkyDAGSchedulerPass"
@@ -184,14 +183,14 @@ static std::vector<char> reachableFrom(unsigned start,
 
 // Cluster-barrier SCC rule (ClusterBarrier kernels only). See cluster-barrier.md.
 // Scheduler runs before InsertClusterBarrierPass; keeps chains off handshake barriers
-// and pins live-out defs after waits. kRule3CrossLoop gates earliestClock on live-out defs.
+// and pins live-out defs after waits. rule3CrossLoop gates earliestClock on live-out defs.
 
-// kRule3CrossLoop true only.
+// rule3CrossLoop true only.
 constexpr int kLiveOutSccDefLeadCycles = 50;
 
 static void applyClusterBarrierSccRule(
     DAGNodeList& dagNodes, const std::unordered_map<StinkyInstruction*, unsigned>& instToId,
-    std::vector<std::unordered_set<unsigned>>& dagGraph, int regionCycles) {
+    std::vector<std::unordered_set<unsigned>>& dagGraph, int regionCycles, bool rule3CrossLoop) {
     const std::vector<HandshakeBarrier> barriers = collectHandshakeBarriers(dagNodes);
     if (barriers.empty()) return;
 
@@ -241,8 +240,9 @@ static void applyClusterBarrierSccRule(
                                      << " chain (dagId=" << first->id << ") after barrier wait"
                                      << " (dagId=" << barrier.wait->id << ")\n");
             }
-            // kRule3CrossLoop true only: lead ceiling on live-out SCC def (see cluster-barrier.md).
-            if (cluster_barrier::kRule3CrossLoop) {
+            // Rule 3 cross-loop only: lead ceiling on live-out SCC def
+            // (see cluster-barrier.md).
+            if (rule3CrossLoop) {
                 first->earliestClock = regionCycles - kLiveOutSccDefLeadCycles;
                 PASS_DEBUG(std::cerr << "[DAG schedule] cluster-barrier SCC rule: live-out chain"
                                      << " (dagId=" << first->id
@@ -359,7 +359,8 @@ static void scheduleRegionWithMovableSideEffects(
     }
 
     if (readyQueue.clusterBarrierEnabled())
-        applyClusterBarrierSccRule(dagNodes, instToId, dagGraph, cumCycles[regionSize]);
+        applyClusterBarrierSccRule(dagNodes, instToId, dagGraph, cumCycles[regionSize],
+                                   readyQueue.clusterBarrierRule3CrossLoopEnabled());
 
     // Pre-scan: assign dsReadPriority to each ds_read based on WMMA affinity
     // and DsReadOrder config. Lower priority = pick first.

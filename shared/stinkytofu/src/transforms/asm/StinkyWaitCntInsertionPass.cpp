@@ -22,6 +22,7 @@
 
 #include "stinkytofu/transforms/asm/StinkyWaitCntInsertionPass.hpp"
 
+#include <algorithm>
 #include <memory>
 #include <string>
 #include <vector>
@@ -156,6 +157,16 @@ class StinkyWaitCntInsertionPass : public StinkyInstPass {
         wait->addModifier<CommentData>(CommentData{text});
     }
 
+    const StinkyInstruction* findLoopCarriedWarBarrier(const StinkyInstruction* anchor) const {
+        if (anchor == nullptr) return nullptr;
+        if (anchor->getModifier<LoopCarriedWarData>() != nullptr) return anchor;
+        if (!isBarrierSignal(*anchor)) return nullptr;
+
+        const auto* pairedWait = dyn_cast<StinkyInstruction>(anchor->getNext());
+        if (pairedWait == nullptr || !isBarrierWait(*pairedWait)) return nullptr;
+        return pairedWait->getModifier<LoopCarriedWarData>() != nullptr ? pairedWait : nullptr;
+    }
+
     void emitOneSpec(AsmIRBuilder& builder, GfxArchID arch, StinkyInstruction* anchor,
                      const WaitCountSpec& spec) {
         if (spec.dsCount != WaitCountSpec::kUnused) {
@@ -181,16 +192,31 @@ class StinkyWaitCntInsertionPass : public StinkyInstPass {
             w->addModifier<SWaitCntData>(d);
         }
         if (spec.tensorCount != WaitCountSpec::kUnused) {
+            int tensorCount = spec.tensorCount;
+            const StinkyInstruction* loopCarriedBarrier = findLoopCarriedWarBarrier(anchor);
+            const bool relaxLoopCarriedBarrier =
+                loopCarriedBarrier != nullptr && options.loopCarriedTensorLoadsToKeep > tensorCount;
+            if (relaxLoopCarriedBarrier) tensorCount = options.loopCarriedTensorLoadsToKeep;
+
             StinkyInstruction* w =
                 builder.create(getMCIDByUOp(GFX::s_wait_tensorcnt, arch), anchor);
-            w->addSrcReg(StinkyRegister(spec.tensorCount));
+            w->addSrcReg(StinkyRegister(tensorCount));
             SWaitTensorCntData d;
-            d.tlcnt = spec.tensorCount;
+            d.tlcnt = tensorCount;
             w->addModifier<SWaitTensorCntData>(d);
             // Tag the wait with the drained loads' memory tokens so downstream passes
             // (e.g. TDMLoadWaveSyncPass) can identify the drained wait group. The
-            // tlcnt above is what the hardware waits on.
-            if (!spec.tensorTokens.empty()) {
+            // tlcnt above is what the hardware waits on. When relaxing a rotating
+            // loop barrier, only its target LDS buffer is drained; the other buffer
+            // tokens deliberately stay in flight.
+            const auto* anchorTokens =
+                relaxLoopCarriedBarrier ? anchor->getModifier<MemTokenData>() : nullptr;
+            if (anchorTokens == nullptr && relaxLoopCarriedBarrier) {
+                anchorTokens = loopCarriedBarrier->getModifier<MemTokenData>();
+            }
+            if (anchorTokens != nullptr) {
+                w->addModifier<MemTokenData>(*anchorTokens);
+            } else if (!spec.tensorTokens.empty()) {
                 w->addModifier<MemTokenData>(MemTokenData{spec.tensorTokens});
             }
         }

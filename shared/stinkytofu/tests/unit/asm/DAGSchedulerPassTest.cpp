@@ -33,7 +33,6 @@
 #include "stinkytofu/core/PassManager.hpp"
 #include "stinkytofu/ir/asm/StinkyModifiers.hpp"
 #include "stinkytofu/support/Casting.hpp"
-#include "stinkytofu/transforms/asm/InsertClusterBarrierPass.hpp"
 #include "stinkytofu/transforms/asm/StinkyDAGSchedulerPass.hpp"
 #include "stinkytofu/transforms/asm/StinkyMergeBarrierPass.hpp"
 #include "transforms/asm/dag/RegionDAG.hpp"
@@ -336,13 +335,14 @@ class DAGSchedulerPassTest : public ::testing::Test {
 
     // Run with the cluster-barrier SCC rule on/off. distributeGlobalRead mirrors
     // the gfx1250 pipeline so tensor loads take their normal queue.
-    void runPassWithClusterBarrier(bool clusterBarrier) {
+    void runPassWithClusterBarrier(bool clusterBarrier, bool rule3CrossLoop = false) {
         PassContext ctx;
         ctx.setGemmTileConfig(config);
         PassFeatureConfig pfc;
         pfc.loopConfig.unrollGemm = true;
         pfc.dagFeatures.distributeGlobalRead = true;
         pfc.dagFeatures.clusterBarrier = clusterBarrier;
+        pfc.dagFeatures.clusterBarrierRule3CrossLoop = rule3CrossLoop;
         ctx.setPassFeatureConfig(pfc);
         if (testDumpEnabled()) {
             std::cerr << "\n=== INPUT (clusterBarrier=" << (clusterBarrier ? "on" : "off")
@@ -693,6 +693,42 @@ TEST_F(DAGSchedulerPassTest, WmmaHideBudgetCountsPickedNodesRatherThanIssueCycle
     EXPECT_EQ(budget.nonWmmaInstructionCount, 3);
     EXPECT_EQ(budget.nonDsLoadInstructionCount, 3);
     EXPECT_EQ(budget.windows[0].issueBudget, 3);
+}
+
+TEST_F(DAGSchedulerPassTest, LoopCarriedWarBarrierUnlockingTensorLoadPromotesAheadOfComputeDrain) {
+    bb->addSuccessor(bb);
+
+    StinkyInstruction* earlyDsRead =
+        createMovableDsLoad(/*destReg=*/400, /*addrReg=*/500, /*ldsToken=*/0);
+    auto [signal, wait] = createMovableWorkgroupBarrier(bb, /*ldsToken=*/2);
+    wait->addModifier<LoopCarriedWarData>(
+        LoopCarriedWarData{/*tokens=*/std::vector<int>{0}, /*distance=*/1});
+    StinkyInstruction* tensorLoad =
+        createMovableTensorLoad(bb, /*src0Reg=*/220, /*src1Reg=*/224, /*ldsToken=*/2);
+    StinkyInstruction* firstWmma =
+        createWmmaF32_16x16x16_bf16(/*destStart=*/100, /*src0Start=*/300);
+    StinkyInstruction* secondWmma =
+        createWmmaF32_16x16x16_bf16(/*destStart=*/120, /*src0Start=*/320);
+    auto [laterSignal, laterWait] = createMovableWorkgroupBarrier(bb, /*ldsToken=*/1);
+
+    runPassWithUnrollGemm();
+
+    EXPECT_LT(positionOf(*bb, signal), positionOf(*bb, firstWmma))
+        << "the loop-carried barrier signal must not wait for compute queues to drain"
+        << scheduleOrder(*bb);
+    EXPECT_LT(positionOf(*bb, wait), positionOf(*bb, firstWmma))
+        << "the paired wait must receive the same immediate promotion" << scheduleOrder(*bb);
+    EXPECT_LT(positionOf(*bb, tensorLoad), positionOf(*bb, earlyDsRead))
+        << "the third-buffer tensor load must issue before the source-earlier LDS read burst"
+        << scheduleOrder(*bb);
+    EXPECT_LT(positionOf(*bb, tensorLoad), positionOf(*bb, firstWmma))
+        << "the third-buffer tensor load must issue before the WMMA burst" << scheduleOrder(*bb);
+    EXPECT_LT(positionOf(*bb, tensorLoad), positionOf(*bb, laterSignal))
+        << "an unrelated later barrier must not consume the ready-queue gap while "
+           "the tensor address chain becomes ready"
+        << scheduleOrder(*bb);
+    EXPECT_LT(positionOf(*bb, tensorLoad), positionOf(*bb, laterWait)) << scheduleOrder(*bb);
+    EXPECT_LT(positionOf(*bb, firstWmma), positionOf(*bb, secondWmma));
 }
 
 TEST_F(DAGSchedulerPassTest, WmmaHideBudgetHoldsNextWmmaUntilAssignedWorkIssues) {
@@ -2041,8 +2077,7 @@ TEST_F(DAGSchedulerPassTest, ClusterBarrierSccRule_PinsLiveOutSccDefBelowLastBar
 // kLiveOutSccDefLeadCycles.
 constexpr int kSccDefLeadCycles = 50;
 
-IF_RULE3_CROSS_LOOP(TEST_F(DAGSchedulerPassTest,
-                           ClusterBarrierSccRule_LiveOutSccDefLandsNearItsBranch) {
+TEST_F(DAGSchedulerPassTest, ClusterBarrierSccRule_LiveOutSccDefLandsNearItsBranch) {
     BasicBlock* body = bb;
     body->addSuccessor(body);
 
@@ -2066,7 +2101,7 @@ IF_RULE3_CROSS_LOOP(TEST_F(DAGSchedulerPassTest,
     StinkyInstruction* branch = createSCbranchReadingScc(body);
 
     const int beforeCount = countStinkyInstructions(*body);
-    runPassWithClusterBarrier(/*clusterBarrier=*/true);
+    runPassWithClusterBarrier(/*clusterBarrier=*/true, /*rule3CrossLoop=*/true);
     ASSERT_EQ(countStinkyInstructions(*body), beforeCount)
         << "the SCC rule must not drop instructions";
 
@@ -2084,13 +2119,11 @@ IF_RULE3_CROSS_LOOP(TEST_F(DAGSchedulerPassTest,
     EXPECT_LE(lead, kSccDefLeadCycles)
         << "the compare must also wait for the branch to come within " << kSccDefLeadCycles
         << " cycles instead of issuing the moment the barrier frees it:" << scheduleOrder(*body);
-})
+}
 
-// With cluster barrier on and kRule3CrossLoop false, only the barrier pin
+// With cluster barrier on and Rule 3 cross-loop false, only the barrier pin
 // applies.
 TEST_F(DAGSchedulerPassTest, ClusterBarrierSccRule_CrossLoopOffLeavesSccDefFarFromItsBranch) {
-    if (cluster_barrier::kRule3CrossLoop) GTEST_SKIP() << "requires kRule3CrossLoop == false";
-
     BasicBlock* body = bb;
     body->addSuccessor(body);
 
@@ -2113,12 +2146,12 @@ TEST_F(DAGSchedulerPassTest, ClusterBarrierSccRule_CrossLoopOffLeavesSccDefFarFr
 
     StinkyInstruction* branch = createSCbranchReadingScc(body);
 
-    runPassWithClusterBarrier(/*clusterBarrier=*/true);
+    runPassWithClusterBarrier(/*clusterBarrier=*/true, /*rule3CrossLoop=*/false);
 
     const int lead = cyclesBetween(*body, sccDef, branch);
     ASSERT_GE(lead, 0);
     EXPECT_GT(lead, kSccDefLeadCycles)
-        << "kRule3CrossLoop off keeps only the barrier pin:" << scheduleOrder(*body);
+        << "Rule 3 cross-loop off keeps only the barrier pin:" << scheduleOrder(*body);
 }
 
 // The same region with the rule off, which is also what the pin alone used to

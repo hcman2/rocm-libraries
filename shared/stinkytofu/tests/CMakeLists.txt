@@ -56,6 +56,7 @@ set(TEST_LINK_LIBS
 set(UNIT_ASM_TEST_FILES
     unit/asm/WaitCntInsertionTest.cpp
     unit/asm/DAGSchedulerPassTest.cpp
+    unit/asm/WaitAwareScheduleRepairPassTest.cpp
     unit/asm/CDNA5ReadyQueueTest.cpp
     unit/asm/InFlightQueueTest.cpp
     unit/asm/ExecMaskGroupingTest.cpp

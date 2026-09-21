@@ -85,15 +85,14 @@ Multiple loads sharing the same workgroup signal receive one handshake.
 
    It stops outright at a preceding handshake or at any `s_barrier_wait -3`, so
    cluster phases never overlap, and at a call or an unconditional branch. With
-   `kRule3CrossLoop` false every label and branch stops it too, which confines it
+   `Rule3CrossLoop` false every label and branch stops it too, which confines it
    to the wait's own segment.
 
 When cycle estimates are unavailable, the signal co-locates with the wait.
 
-Cross-segment hoisting and loop-carried compensation are gated by the compile-time
-switch `cluster_barrier::kRule3CrossLoop` in
-`InsertClusterBarrierPass.hpp` (default **false**). See
-[`kRule3CrossLoop`](#krule3crossloop) below.
+Cross-segment hoisting and loop-carried compensation are gated by the per-kernel
+`ModuleOptions::Rule3CrossLoop` switch (default **false**). See
+[`Rule3CrossLoop`](#rule3crossloop) below.
 
 ### SCC
 
@@ -225,12 +224,11 @@ self-disables there.
 
 ---
 
-## kRule3CrossLoop
+## Rule3CrossLoop
 
-Compile-time switch in `cluster_barrier::kRule3CrossLoop`
-(`include/stinkytofu/transforms/asm/InsertClusterBarrierPass.hpp`). Rebuild
-rocisa after changing it. It gates **Rule 3 cross-loop hoisting** and the
-scheduler **live-out SCC lead ceiling** in `StinkyDAGSchedulerPass`.
+`ModuleOptions::Rule3CrossLoop` is the per-kernel switch. Tensile enables it
+when `TDMPlusLdsBuf == 1`, so 3LDSB kernels use **Rule 3 cross-loop hoisting**
+and the scheduler **live-out SCC lead ceiling** in `StinkyDAGSchedulerPass`.
 
 ### Shared behavior (true and false)
 
@@ -243,7 +241,7 @@ With cluster barrier enabled:
   SCC defs (loop counter compares) **after** every cluster barrier wait in the
   region — the compare may not issue before the last wait completes.
 
-### `kRule3CrossLoop == false` (default)
+### `Rule3CrossLoop == false` (default)
 
 **InsertClusterBarrierPass**
 
@@ -264,7 +262,7 @@ With cluster barrier enabled:
 **Typical assembly:** signal and wait remain close in the loop body; loop exit
 has no `drain loop-carried cluster signal` wait.
 
-### `kRule3CrossLoop == true` (opt-in)
+### `Rule3CrossLoop == true` (3LDSB)
 
 **InsertClusterBarrierPass**
 
@@ -318,11 +316,8 @@ exit has drain wait + skip path.
 
 ### Tests
 
-- `InsertClusterBarrierPassTest` / `DAGSchedulerPassTest`: cross-loop cases use
-  `IF_RULE3_CROSS_LOOP`, so they are omitted from the binary while
-  `STINKY_KRULE3_CROSS_LOOP` is 0. Cases that need the switch off stay in the binary
-  and `GTEST_SKIP` themselves when it is 1. Covering the pass therefore means
-  building and running both settings.
+- `InsertClusterBarrierPassTest` and `DAGSchedulerPassTest` drive the runtime
+  option both on and off directly.
 
 ---
 

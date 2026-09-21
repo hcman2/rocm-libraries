@@ -187,6 +187,8 @@ bool buildGfx1250Pipeline(ModulePassManager& mpm, StinkyAsmModule& module, const
                 // Same option as InsertClusterBarrierPass below (see
                 // cluster-barrier.md).
                 passFeatureConfig.dagFeatures.clusterBarrier = moduleOptions.ClusterBarrier;
+                passFeatureConfig.dagFeatures.clusterBarrierRule3CrossLoop =
+                    moduleOptions.Rule3CrossLoop;
                 applyResolvedSchedulingKnobs(passFeatureConfig, resolvedKnobs);
                 if (moduleOptions.DsReadOrder >= 0)
                     passFeatureConfig.dagFeatures.dsReadOrder =
@@ -206,6 +208,8 @@ bool buildGfx1250Pipeline(ModulePassManager& mpm, StinkyAsmModule& module, const
                 WaitCntInsertionOptions waitCntOptions;
                 waitCntOptions.enableLoopCarriedTokenDeps =
                     moduleOptions.EnableLoopCarriedTokenDeps;
+                waitCntOptions.loopCarriedTensorLoadsToKeep =
+                    std::max(0, moduleOptions.LoopCarriedTensorLoadsToKeep);
                 innerPM.addPass(createStinkyWaitCntInsertionPass(waitCntOptions));
                 if (runScheduler) innerPM.addPass(createRemoveDscntPass());
             }
@@ -216,7 +220,8 @@ bool buildGfx1250Pipeline(ModulePassManager& mpm, StinkyAsmModule& module, const
             // refill those slots, without changing any wait immediate.
             const int waitRepairSlotsAfterAnchor = 1;
             if (runScheduler && waitRepairSlotsAfterAnchor > 0) {
-                innerPM.addPass(createWaitAwareScheduleRepairPass(waitRepairSlotsAfterAnchor));
+                innerPM.addPass(createWaitAwareScheduleRepairPass(
+                    waitRepairSlotsAfterAnchor, moduleOptions.WaitRepairPreserve3LdsbTensorOrder));
             }
 
             pm.addPass(createKernelToRegionsPassAdaptor(
@@ -243,7 +248,9 @@ bool buildGfx1250Pipeline(ModulePassManager& mpm, StinkyAsmModule& module, const
                 /*streamKMulticast=*/moduleOptions.StreamKMulticast,
                 /*pgrValue=*/moduleOptions.PrefetchGlobalRead,
                 /*rule3SignalLeadCycles=*/
-                resolvedKnobs.clusterBarrierRule3SignalLeadCycles));
+                resolvedKnobs.clusterBarrierRule3SignalLeadCycles,
+                /*numLdsBuffers=*/moduleOptions.NumLdsBlk,
+                /*rule3CrossLoop=*/moduleOptions.Rule3CrossLoop));
         }
 
         // Build the CFG after the flat region splice-backs so RegionClonePass can

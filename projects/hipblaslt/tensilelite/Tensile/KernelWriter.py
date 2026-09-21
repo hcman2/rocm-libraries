@@ -7089,10 +7089,14 @@ class KernelWriter(metaclass=abc.ABCMeta):
                                # Cluster-barrier handshake insertion in Gfx1250Backend
                                # (kernel-scope at every OptLevel when set).
                                "ClusterBarrier": bool(kernel.get("ClusterBarrier", False)),
+                               # 3LDSB hands Rule 3 signals across the loop back edge so
+                               # the next iteration receives enough signal-to-wait lead.
+                               "Rule3CrossLoop": kernel.get("TDMPlusLdsBuf", 0) == 1,
                                # StreamKMulticast gates the per-iteration cooperative-broadcast
                                # drain in InsertClusterBarrierPass Rule 3 (mainloop): with PGR>=2
-                               # an `s_wait_tensorcnt 0` is emitted after the cooperative
-                               # tensor_load group so the broadcast retires before the back edge.
+                               # a bounded s_wait_tensorcnt is emitted after the cooperative
+                               # tensor_load group; NumLdsBlk controls how many older rotating
+                               # LDS-buffer loads may remain in flight.
                                # Requires TDM multicast, not just a cluster: without a peer
                                # ld_bcst that wait has nothing to retire (gfx1250v0).
                                "StreamKMulticast": bool(streamKMulticast(kernel)),
@@ -7105,6 +7109,22 @@ class KernelWriter(metaclass=abc.ABCMeta):
                                "PrefetchGlobalRead": int(kernel.get("PrefetchGlobalRead", 1)),
                                # PrefetchLocalRead (PLR) for Tensile scheduling. Defaults to 1.
                                "PrefetchLocalRead": int(kernel.get("PrefetchLocalRead", 1)),
+                               # Physical rotating LDS-buffer count. InsertClusterBarrierPass
+                               # keeps the other buffers' cooperative tensor loads in flight
+                               # instead of draining the whole tensor queue on each iteration.
+                               "NumLdsBlk": int(kernel.get("NumLdsBlk", 1)),
+                               # Independent StinkyWaitCntInsertionPass policy for rotating
+                               # LDS buffers. Do not derive this from Rule3CrossLoop in C++:
+                               # cluster-barrier placement and tensor-counter draining are
+                               # separate controls.
+                               "LoopCarriedTensorLoadsToKeep": (
+                                   int(kernel.get("NumLdsBlk", 1)) - 1
+                                   if kernel.get("TDMPlusLdsBuf", 0) == 1 else 0),
+                               # WaitAwareScheduleRepairPass must preserve the
+                               # loop-carried barrier/tensor-load order established
+                               # by the primary scheduler only for 3LDSB kernels.
+                               "WaitRepairPreserve3LdsbTensorOrder": (
+                                   kernel.get("TDMPlusLdsBuf", 0) == 1),
                                # Abs SW prefetch: mutually exclusive with PC-rel.
                                # Abs takes priority when both are True (backend enforces via else-if).
                                "EnableSwInstructionPrefetchAbs": swpAbsEnable,

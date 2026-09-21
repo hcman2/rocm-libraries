@@ -43,6 +43,7 @@
 
 #include "InFlightQueue.hpp"
 #include "ReadyQueue.hpp"
+#include "RegionDAG.hpp"
 #include "stinkytofu/analysis/asm/WmmaHideBudgetAnalysis.hpp"
 #include "stinkytofu/core/PassManager.hpp"
 #include "stinkytofu/hardware/ArchHelper.hpp"
@@ -590,7 +591,7 @@ class CDNA5ReadyQueue : public ReadyQueue {
         return !sccChainBlocks(node);
     }
 
-    // kRule3CrossLoop false: no-op (earliestClock unset).
+    // Rule 3 cross-loop false: no-op (earliestClock unset).
     bool heldBackForLead(const DAGNode* node) const {
         if (!clusterBarrierEnabled()) return false;
         return clock_ < node->earliestClock;
@@ -2486,6 +2487,71 @@ void CDNA5ReadyQueue::onInitRegion(IRList::iterator regionStart, IRList::iterato
 
         for (const auto& group : exclusiveAfterGroups) setGroupThreshold(group, group.threshold);
         for (const auto& group : exclusiveBeforeGroups) setGroupThreshold(group, group.threshold);
+
+        // A rotating-buffer barrier can protect a tensor load solely through a
+        // loop-carried WAR. It then has no same-trip ds_read on its MemToken, so
+        // neither threshold estimator above sees it. Without a threshold the
+        // normal barrier phase drains every compute queue first, placing the
+        // tensor load at the end of the region and defeating the extra LDS
+        // buffer. Promote such a pair as soon as its ordinary DAG predecessors
+        // are satisfied, and keep earlier source-order ds_reads behind the
+        // tensor load. Otherwise those reads win the normal smallest-id policy
+        // while the tensor address-update chain is becoming ready, placing the
+        // tensor load in the middle of the LDS burst. Wait insertion still
+        // enforces the declared cross-trip WAR immediately before the barrier.
+        auto promoteLoopCarriedTensorBarrierGroups = [&]() {
+            auto groups =
+                groupBarrierTokens(collectBarrierTokens(regionStart, regionEnd, /*useSrc=*/true));
+            for (const auto& group : groups) {
+                bool hasLoopCarriedWar = false;
+                bool hasExistingThreshold = false;
+                std::vector<StinkyInstruction*> unlockedTensorLoads;
+                for (StinkyInstruction* barrier : group.barriers) {
+                    hasLoopCarriedWar |= barrier->getModifier<LoopCarriedWarData>() != nullptr;
+                    hasExistingThreshold |= barrierWmmaThresholds_.contains(barrier);
+
+                    auto idIt = deps.dag.instToId.find(barrier);
+                    if (idIt == deps.dag.instToId.end()) continue;
+                    for (unsigned successorId : deps.dag.graph[idIt->second]) {
+                        StinkyInstruction* successor = deps.dag.nodes[successorId].inst;
+                        if (isTensorLoad(*successor)) unlockedTensorLoads.push_back(successor);
+                    }
+                }
+                if (!hasLoopCarriedWar || hasExistingThreshold || unlockedTensorLoads.empty())
+                    continue;
+
+                for (StinkyInstruction* barrier : group.barriers)
+                    barrierWmmaThresholds_[barrier] = 0;
+
+                int constrainedComputeOps = 0;
+                int constrainedBarriers = 0;
+                for (StinkyInstruction* tensorLoad : unlockedTensorLoads) {
+                    const unsigned tensorId = deps.dag.instToId.at(tensorLoad);
+                    for (unsigned successorId = 0; successorId < deps.dag.nodes.size();
+                         ++successorId) {
+                        StinkyInstruction* successor = deps.dag.nodes[successorId].inst;
+                        const bool isCompute =
+                            isDSRead(*successor) || isMatrixInstruction(*successor);
+                        const bool isLaterBarrier = successorId > tensorId && isBarrier(*successor);
+                        if ((!isCompute && !isLaterBarrier) ||
+                            hasPath(deps.dag.graph, successorId, tensorId))
+                            continue;
+                        deps.requestedConstraints.emplace_back(tensorLoad, successor);
+                        if (isLaterBarrier)
+                            constrainedBarriers++;
+                        else
+                            constrainedComputeOps++;
+                    }
+                }
+                PASS_DEBUG(std::cerr
+                           << "[CDNA5 onInitRegion loop-carried tensor barrier] groupSize="
+                           << group.barriers.size()
+                           << " threshold=0 tensorLoads=" << unlockedTensorLoads.size()
+                           << " constrainedComputeOps=" << constrainedComputeOps
+                           << " constrainedBarriers=" << constrainedBarriers << "\n");
+            }
+        };
+        promoteLoopCarriedTensorBarrierGroups();
 
         // Final pair normalization: keep barrier_signal/barrier_wait pairs on the
         // same threshold.

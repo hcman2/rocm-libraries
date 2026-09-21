@@ -92,10 +92,14 @@
     X(EnableSwInstructionPrefetchAbs, bool)       \
     X(SwInstructionPrefetchAbsBaseSgpr, int)      \
     X(ClusterBarrier, bool)                       \
+    X(Rule3CrossLoop, bool)                       \
     X(StreamKMulticast, bool)                     \
     X(TDMLoadWaveSync, bool)                      \
     X(PrefetchGlobalRead, int)                    \
     X(PrefetchLocalRead, int)                     \
+    X(NumLdsBlk, int)                             \
+    X(LoopCarriedTensorLoadsToKeep, int)          \
+    X(WaitRepairPreserve3LdsbTensorOrder, bool)   \
     X(RemoveInstructions, std::string)            \
     X(CloneList, std::vector<CloneSpec>)          \
     X(DsReadQueueDepth, int)                      \

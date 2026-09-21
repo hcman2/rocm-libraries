@@ -375,23 +375,25 @@ void insertRule3HandshakeBefore(IRBase* signalAnchor, IRBase* waitAnchor, AsmIRB
     insertClusterBarrierWaitBefore(waitAnchor, "cluster barrier wait", irBuilder, archId);
 }
 
-/// Emit `s_wait_tensorcnt 0` immediately before \p anchor (the instruction
-/// right after a cooperative `tensor_load_to_lds` group). Under PGR>=2 the
-/// cooperative load is async and produced by a PEER wave, so the consumer's own
-/// tensor counter cannot order it. Draining right after the load issues makes
-/// the broadcast coherent before the back edge, so the publishing workgroup
-/// barrier at the next loop head orders it for the consuming waves. Matches
-/// PGR1's per-iteration drain.
-void insertProducerTensorDrainBefore(IRBase* anchor, AsmIRBuilder& irBuilder, GfxArchID archId) {
+/// Emit `s_wait_tensorcnt keepTensorLoads` immediately before \p anchor (the
+/// instruction right after a cooperative `tensor_load_to_lds` group). Keeping
+/// the loads for the other rotating LDS buffers in flight preserves their
+/// overlap; the next group cannot make the queue exceed the physical-buffer
+/// window. A one-buffer/unspecified configuration retains the legacy full
+/// drain.
+void insertProducerTensorDrainBefore(IRBase* anchor, int keepTensorLoads, AsmIRBuilder& irBuilder,
+                                     GfxArchID archId) {
+    assert(keepTensorLoads >= 0 && keepTensorLoads <= INT8_MAX &&
+           "tensor-load keep count does not fit SWaitTensorCntData");
     const HwInstDesc* waitDesc = getMCIDByUOp(GFX::s_wait_tensorcnt, archId);
     assert(waitDesc && "s_wait_tensorcnt opcode is not supported on this architecture");
     StinkyInstruction* w = irBuilder.create(waitDesc, anchor);
-    w->addSrcReg(StinkyRegister(0));
+    w->addSrcReg(StinkyRegister(keepTensorLoads));
     SWaitTensorCntData d;
-    d.tlcnt = 0;
+    d.tlcnt = static_cast<int8_t>(keepTensorLoads);
     w->addModifier<SWaitTensorCntData>(d);
     w->addModifier<CommentData>(
-        CommentData{"retire cooperative tensor_load_to_lds before back-edge "
+        CommentData{"bound cooperative tensor_load_to_lds in-flight window before back-edge "
                     "(PGR>=2 coherence)"});
 }
 
@@ -667,8 +669,8 @@ Rule3SignalAnchor rule3ReportAnchor(IRBase* anchor, IRBase* defaultAnchor, int h
 /// compensation necessary.
 bool preheaderCanTakeCompensatingSignal(StinkyInstruction* loopHead);
 
-/// Walk backward from the wait for cycle lead. \p maxHops 0 = in-segment only
-/// (kRule3CrossLoop false); 1 = one segment hop allowed (kRule3CrossLoop true).
+/// Walk backward from the wait for cycle lead. \p maxHops 0 = in-segment only;
+/// 1 = one segment hop allowed by Rule 3 cross-loop.
 Rule3SignalAnchor findRule3SignalAnchorByCycleLead(
     StinkyInstruction* referenceAnchor, BasicBlock::iterator segBegin, IRBase* defaultAnchor,
     const std::unordered_map<const StinkyInstruction*, uint32_t>& cycleMap, int leadCycles,
@@ -855,9 +857,8 @@ Rule3SignalAnchor findRule3SignalAnchorByCycleLead(
             // is such a stop even with hops to spare, since the only way past it is
             // the latch.
             const bool atLoopHead = (loopHead != nullptr && inst == loopHead);
-            // Stops at a segment boundary once maxHops is exhausted (0 when
-            // kRule3CrossLoop false); a call or an unconditional branch is never
-            // crossed.
+            // Stops at a segment boundary once maxHops is exhausted; a call or
+            // an unconditional branch is never crossed.
             const bool mustStop = hops >= maxHops || isCall(*inst) || isUnconditionalBranch(*inst);
             if (targetMet && (atLoopHead || mustStop)) {
                 if (curSegBeginSccLive()) return downwardFromLeadMet();
@@ -1023,8 +1024,7 @@ IRBase* anchorJustBelow(StinkyInstruction* behind, StinkyInstruction* limit) {
     return limit;
 }
 
-/// Where the compensating signal goes in the preheader (`kRule3CrossLoop`
-/// only).
+/// Where the compensating signal goes in the preheader (Rule 3 cross-loop only).
 ///
 /// Climb from the loop head upward and stop below the first thing the signal
 /// may not be lifted over: ``s_barrier_wait -1``, ``s_barrier_wait -3``,
@@ -1111,7 +1111,7 @@ void retargetBranch(StinkyInstruction& branch, const std::string& newLabel) {
     }
 }
 
-/// kRule3CrossLoop true only. Balance tokens left outstanding by a hoisted loop
+/// Rule 3 cross-loop only. Balance tokens left outstanding by a hoisted loop
 /// (see md).
 ///
 /// A handshake that climbed out of its segment leaves its signal above some
@@ -1278,10 +1278,13 @@ class InsertClusterBarrierPassImpl : public Pass {
    public:
     static char ID;
 
-    InsertClusterBarrierPassImpl(bool streamKMulticast, int pgrValue, int rule3SignalLeadCycles)
+    InsertClusterBarrierPassImpl(bool streamKMulticast, int pgrValue, int rule3SignalLeadCycles,
+                                 int numLdsBuffers, bool rule3CrossLoop)
         : streamKMulticast_(streamKMulticast),
           pgrValue_(pgrValue),
-          rule3SignalLeadCycles_(std::max(0, rule3SignalLeadCycles)) {}
+          rule3SignalLeadCycles_(std::max(0, rule3SignalLeadCycles)),
+          numLdsBuffers_(std::max(1, numLdsBuffers)),
+          rule3CrossLoop_(rule3CrossLoop) {}
 
     const char* getName() const override {
         return "Insert Cluster Barrier";
@@ -1351,10 +1354,14 @@ class InsertClusterBarrierPassImpl : public Pass {
             };
             std::vector<TriggerSite> triggers;
             std::unordered_set<StinkyInstruction*> seenTriggers;
+            struct ProducerDrainSite {
+                IRBase* anchor = nullptr;
+                int groupLoadCount = 0;
+            };
             // Anchors (instruction right after each cooperative tensor_load
-            // group) for the producer-side drain; see
-            // insertProducerTensorDrainBefore.
-            std::vector<IRBase*> producerDrainAnchors;
+            // group) and the group sizes used to bound the producer-side
+            // in-flight window; see insertProducerTensorDrainBefore.
+            std::vector<ProducerDrainSite> producerDrainSites;
 
             {
                 auto segBegin = bb.begin();
@@ -1393,17 +1400,19 @@ class InsertClusterBarrierPassImpl : public Pass {
                     // A/B operand load plus its MX-scale load) rather than landing
                     // between them.
                     if (streamKMulticast_ && pgrValue_ >= 2) {
+                        int groupLoadCount = 1;
                         auto postIt = std::next(it);
                         while (postIt != bb.end()) {
                             auto* pinst = dyn_cast<StinkyInstruction>(postIt.getNodePtr());
                             if (pinst != nullptr && isTensorLoad(*pinst)) {
+                                ++groupLoadCount;
                                 ++postIt;
                                 continue;
                             }
                             break;
                         }
-                        producerDrainAnchors.push_back((postIt != bb.end()) ? postIt.getNodePtr()
-                                                                            : nullptr);
+                        producerDrainSites.push_back(
+                            {(postIt != bb.end()) ? postIt.getNodePtr() : nullptr, groupLoadCount});
                     }
                 }
             }
@@ -1430,9 +1439,8 @@ class InsertClusterBarrierPassImpl : public Pass {
                 // worth crossing for, and a loop whose segments disagree is no harder
                 // to balance than one where they all hoist.
                 StinkyInstruction* head = findEnclosingLoopHead(trigger);
-                // kRule3CrossLoop false: maxHops=0, climb stays in-segment. true: one
-                // hop.
-                const int maxSegmentHops = cluster_barrier::kRule3CrossLoop ? kMaxSegmentHops : 0;
+                // Cross-loop false: maxHops=0, climb stays in-segment. true: one hop.
+                const int maxSegmentHops = rule3CrossLoop_ ? kMaxSegmentHops : 0;
                 // Measure the lead from where the wait actually lands, not from the
                 // trigger, so the hoist does not eat into the guaranteed signal->wait
                 // distance.
@@ -1444,7 +1452,7 @@ class InsertClusterBarrierPassImpl : public Pass {
                 // go in, the body is full of this pass's own skip branches and
                 // barriers, and neither the loop's real exit nor an unspoken-for
                 // stretch of preheader is easy to tell apart from them.
-                if (found.hops > 0) {  // kRule3CrossLoop true only: cross-segment compensation
+                if (found.hops > 0) {  // Rule 3 cross-loop: cross-segment compensation
                     const auto [slot, isNew] = hoistedHeads.emplace(head, hoistedLoops.size());
                     if (isNew) hoistedLoops.push_back({head, findLoopExitLabelName(head), {}});
                     // Only a signal that crossed the back edge feeds the next trip
@@ -1516,7 +1524,7 @@ class InsertClusterBarrierPassImpl : public Pass {
                 insertRule3HandshakeBefore(signalAnchor, waitAnchor, irBuilder, archId);
                 (void)trigger;
             }
-            // kRule3CrossLoop true only: drain / skipCBWait for hoisted loops.
+            // Rule 3 cross-loop: drain / skipCBWait for hoisted loops.
             for (const LoopCompensation& comp : hoistedLoops) {
                 emitLoopCarriedCompensation(comp.head, comp.exitLabel, comp.preLoopSignal, bb, func,
                                             archId);
@@ -1524,8 +1532,9 @@ class InsertClusterBarrierPassImpl : public Pass {
             // Producer-side drain right after each cooperative tensor_load
             // group (retire the async cooperative load before the back-edge so
             // the next loop-head barrier publishes it coherently).
-            for (IRBase* postAnchor : producerDrainAnchors) {
-                insertProducerTensorDrainBefore(postAnchor, irBuilder, archId);
+            for (const ProducerDrainSite& site : producerDrainSites) {
+                const int keepTensorLoads = (numLdsBuffers_ - 1) * site.groupLoadCount;
+                insertProducerTensorDrainBefore(site.anchor, keepTensorLoads, irBuilder, archId);
             }
             if (tailWait != nullptr) {
                 IRBase* anchor =
@@ -1560,6 +1569,8 @@ class InsertClusterBarrierPassImpl : public Pass {
     const bool streamKMulticast_ = false;
     const int pgrValue_ = 1;
     const int rule3SignalLeadCycles_ = 100;
+    const int numLdsBuffers_ = 1;
+    const bool rule3CrossLoop_ = false;
 };
 
 char InsertClusterBarrierPassImpl::ID = 0;
@@ -1567,9 +1578,10 @@ char InsertClusterBarrierPassImpl::ID = 0;
 }  // namespace
 
 std::unique_ptr<Pass> createInsertClusterBarrierPass(bool streamKMulticast, int pgrValue,
-                                                     int rule3SignalLeadCycles) {
-    return std::make_unique<InsertClusterBarrierPassImpl>(streamKMulticast, pgrValue,
-                                                          rule3SignalLeadCycles);
+                                                     int rule3SignalLeadCycles, int numLdsBuffers,
+                                                     bool rule3CrossLoop) {
+    return std::make_unique<InsertClusterBarrierPassImpl>(
+        streamKMulticast, pgrValue, rule3SignalLeadCycles, numLdsBuffers, rule3CrossLoop);
 }
 
 namespace cluster_barrier {

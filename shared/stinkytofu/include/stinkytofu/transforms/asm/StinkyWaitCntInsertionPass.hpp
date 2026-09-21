@@ -35,6 +35,11 @@ struct WaitCntInsertionOptions {
     /// sweep, preventing tensor state from propagating through back-edges.
     /// Enable to restore conservative tensor fixed-point iteration.
     bool enableLoopCarriedTokenDeps = false;
+
+    /// Minimum tensor loads left in flight at a loop-carried rotating-LDS
+    /// barrier. A 3LDSB kernel sets this to 2; zero preserves the dataflow's
+    /// normally computed wait.
+    int loopCarriedTensorLoadsToKeep = 0;
 };
 
 /**

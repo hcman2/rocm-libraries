@@ -279,6 +279,38 @@ st.func @test_barrier_tensor_ds() {
         << "Disjoint tokens on tensor_load/barrier, no tensor waitcnt";
 }
 
+TEST_F(WaitCntInsertionTest, ThreeLdsBuffersKeepTwoTensorLoadsAtLoopCarriedBarrier) {
+    std::string irString = R"(
+st.func @test_3ldsb_tensor_window() {
+^entry:
+  Successors: ^loop_header
+^loop_header:
+  LDS2 = "st.s_barrier_signal"(-1, LDS2) { issueCycles = 1, latencyCycles = 2, mod.memtoken = { tokens = [2] } }
+  LDS2 = "st.s_barrier_wait"(-1, LDS2) { issueCycles = 1, latencyCycles = 1, mod.memtoken = { tokens = [2] }, mod.loopcarriedwar = { tokens = [0], distance = 1 } }
+  LDS2 = "st.tensor_load_to_lds"(s[0:3], s[10:17]) { issueCycles = 1, latencyCycles = 1, mod.memtoken = { tokens = [2] } }
+  Successors: ^loop_header
+}
+)";
+
+    StinkyIRConverter converter(getArch());
+    auto* func = parseIR(irString, converter);
+    ASSERT_NE(func, nullptr);
+
+    WaitCntInsertionOptions options;
+    options.enableLoopCarriedTokenDeps = true;
+    options.loopCarriedTensorLoadsToKeep = 2;
+    runInsertionPass(*func, options);
+
+    BasicBlock& loopHeader = *std::next(func->begin());
+    auto tensorWaits = getAllTensorWaitCnts(loopHeader);
+    ASSERT_EQ(tensorWaits.size(), 1);
+    EXPECT_EQ(tensorWaits[0].tensorWaitData->tlcnt, 2);
+
+    const auto* tokens = tensorWaits[0].inst->getModifier<MemTokenData>();
+    ASSERT_NE(tokens, nullptr);
+    EXPECT_EQ(tokens->tokens, std::vector<int>({2}));
+}
+
 // ============================================================================
 // Test Suite 2: DS Read Insertion before WMMA
 //
