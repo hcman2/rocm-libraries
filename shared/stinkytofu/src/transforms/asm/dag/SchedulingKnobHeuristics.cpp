@@ -5,6 +5,7 @@
 
 #include <algorithm>
 #include <cassert>
+#include <cmath>
 #include <iostream>
 #include <ostream>
 #include <string>
@@ -119,8 +120,10 @@ ResolvedSchedulingKnobs HeuristicSchedulingKnobPolicy::propose(const SchedulingF
     // A saturated queue issues one ds_read every dsReadThrottleLatency/queueDepth
     // cycles. The main loop only has sumWmmaLatencyCycles/dsLoadCount cycles per
     // ds_load, so a throttle above (sum/ds)*queueDepth cannot issue every load.
-    // That budget wins over the arch floor. Zero (sum < ds) becomes 1, the
-    // smallest value dsReadThrottleLatency() honors instead of falling back.
+    // That ratio is computed in float so a remainder of sum/ds is not discarded
+    // before scaling by queueDepth. The knob stays an int: floor the budget.
+    // A budget below 1 becomes 1, the smallest value dsReadThrottleLatency()
+    // honors instead of falling back to the arch floor.
     const int perCapForThrottle = std::min(perCapCeiling, ceilDivPositive(ds, wmma));
     const int queueDepth = std::max(1, hw.lds.readQueueDepth);
     const int throttleFloor =
@@ -130,8 +133,10 @@ ResolvedSchedulingKnobs HeuristicSchedulingKnobPolicy::propose(const SchedulingF
     int throttle = std::max(throttleFloor, computedThrottle);
     const int sumWmmaLatency = std::max(0, features.stats.sumWmmaLatencyCycles);
     if (sumWmmaLatency > 0) {
-        const int finishBudget = (sumWmmaLatency / ds) * queueDepth;
-        if (throttle > finishBudget) throttle = std::max(1, finishBudget);
+        const float cyclesPerDs = static_cast<float>(sumWmmaLatency) / static_cast<float>(ds);
+        const float finishBudget = cyclesPerDs * static_cast<float>(queueDepth);
+        if (static_cast<float>(throttle) > finishBudget)
+            throttle = std::max(1, static_cast<int>(std::floor(finishBudget)));
     }
     out.dsReadThrottleLatency = throttle;
     out.dsReadThrottleLatencySource = SchedulingKnobSource::Policy;

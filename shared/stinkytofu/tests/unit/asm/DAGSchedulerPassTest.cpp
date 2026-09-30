@@ -203,7 +203,7 @@ class DAGSchedulerPassTest : public ::testing::Test {
     void runPassWithDsReadThrottle(int queueDepth, int throttleLatency, int perCap = 100,
                                    int drainLatency = -1, double transitionFactor = 0.5,
                                    int transitionEntries = -1,
-                                   bool enableWmmaHideBudgetPrescan = false) {
+                                   bool enableWmmaHideBudgetPrescan = false, int dsReadOrder = -1) {
         PassContext ctx;
         ctx.setGemmTileConfig(config);
         PassFeatureConfig pfc;
@@ -216,6 +216,8 @@ class DAGSchedulerPassTest : public ::testing::Test {
         pfc.dagFeatures.dsReadDrainLatency = drainLatency;
         pfc.dagFeatures.dsReadPerCap = perCap;
         pfc.dagFeatures.enableWmmaHideBudgetPrescan = enableWmmaHideBudgetPrescan;
+        if (dsReadOrder >= 0)
+            pfc.dagFeatures.dsReadOrder = static_cast<PassFeatureConfig::DsReadOrder>(dsReadOrder);
         ctx.setPassFeatureConfig(pfc);
         pass->run(*func, ctx, am);
     }
@@ -2015,6 +2017,65 @@ TEST_F(DAGSchedulerPassTest, DsReadThrottle_HideBudgetKeepsFreeWorkAheadOfThrott
     EXPECT_LT(positionOf(*body, freeValu), positionOf(*body, throttledDs))
         << "while the cumulative WMMA hide budget is pending, free VALU still "
            "outranks a DS blocked by throttle pacing / the per-WMMA DS cap";
+}
+
+// latencyCycles longer than indexDiff * WMMA latency skips throttle pacing, so
+// the load issues ahead of a free SALU that would otherwise fill the window.
+TEST_F(DAGSchedulerPassTest, DsReadThrottle_NearChildWmmaIssuesAheadOfFreeValu) {
+    BasicBlock* body = bb;
+    body->addSuccessor(body);
+    createWmmaScaleF8_in(body, /*destStart=*/200, /*src0Start=*/220);
+    createMovableDsLoad(/*destReg=*/0, /*addrReg=*/300, /*ldsToken=*/1);
+    StinkyInstruction* urgent = createMovableDsLoad(/*destReg=*/8, /*addrReg=*/304, /*ldsToken=*/2);
+    urgent->latencyCycles = 16;
+    AsmIRBuilder nearBuilder(*body, arch);
+    StinkyInstruction* freeSalu = nearBuilder.create(getMCIDByUOp(GFX::s_add_u32, arch));
+    freeSalu->addDestReg(StinkyRegister("s", 80, 1));
+    freeSalu->addSrcReg(StinkyRegister("s", 81, 1));
+    freeSalu->addSrcReg(StinkyRegister("s", 82, 1));
+    // Child is the next WMMA. Scale-F8 latency is 8, so the gap is 1*8 cycles.
+    createWmmaScaleF8_in(body, /*destStart=*/240, /*src0Start=*/8);
+
+    runPassWithDsReadThrottle(
+        /*queueDepth=*/1, /*throttleLatency=*/8, /*perCap=*/100, /*drainLatency=*/-1,
+        /*transitionFactor=*/0.5, /*transitionEntries=*/-1,
+        /*enableWmmaHideBudgetPrescan=*/false,
+        /*dsReadOrder=*/static_cast<int>(PassFeatureConfig::DsReadOrder::ProgramOrder));
+
+    EXPECT_LT(positionOf(*body, urgent), positionOf(*body, freeSalu))
+        << "a ds_load whose latencyCycles exceeds indexDiff * WMMA latency "
+           "issues through throttle ahead of free SALU";
+}
+
+// latencyCycles no longer than indexDiff * WMMA latency leaves throttle in place.
+TEST_F(DAGSchedulerPassTest, DsReadThrottle_FarChildWmmaKeepsFreeValuAhead) {
+    BasicBlock* body = bb;
+    body->addSuccessor(body);
+    createWmmaScaleF8_in(body, /*destStart=*/200, /*src0Start=*/220);
+    createMovableDsLoad(/*destReg=*/0, /*addrReg=*/300, /*ldsToken=*/1);
+    StinkyInstruction* farLoad =
+        createMovableDsLoad(/*destReg=*/8, /*addrReg=*/304, /*ldsToken=*/2);
+    farLoad->latencyCycles = 2;
+    AsmIRBuilder farBuilder(*body, arch);
+    StinkyInstruction* freeSalu = farBuilder.create(getMCIDByUOp(GFX::s_add_u32, arch));
+    freeSalu->addDestReg(StinkyRegister("s", 80, 1));
+    freeSalu->addSrcReg(StinkyRegister("s", 81, 1));
+    freeSalu->addSrcReg(StinkyRegister("s", 82, 1));
+    createWmmaScaleF8_in(body, /*destStart=*/240, /*src0Start=*/260);
+    createWmmaScaleF8_in(body, /*destStart=*/280, /*src0Start=*/320);
+    createWmmaScaleF8_in(body, /*destStart=*/360, /*src0Start=*/400);
+    // Child index 4, active index 0, diff 4. Gap is 4*8 cycles. 2 is not longer.
+    createWmmaScaleF8_in(body, /*destStart=*/440, /*src0Start=*/8);
+
+    runPassWithDsReadThrottle(
+        /*queueDepth=*/1, /*throttleLatency=*/8, /*perCap=*/100, /*drainLatency=*/-1,
+        /*transitionFactor=*/0.5, /*transitionEntries=*/-1,
+        /*enableWmmaHideBudgetPrescan=*/false,
+        /*dsReadOrder=*/static_cast<int>(PassFeatureConfig::DsReadOrder::ProgramOrder));
+
+    EXPECT_LT(positionOf(*body, freeSalu), positionOf(*body, farLoad))
+        << "a ds_load whose indexDiff * WMMA latency is at least its latencyCycles "
+           "stays behind free SALU";
 }
 
 TEST_F(DAGSchedulerPassTest, DsReadThrottle_BudgetedDsBeatsRealStallWhenNoFreeWork) {

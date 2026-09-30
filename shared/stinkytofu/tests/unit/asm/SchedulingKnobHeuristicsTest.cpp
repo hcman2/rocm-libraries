@@ -145,8 +145,8 @@ TEST(SchedulingKnobHeuristics, ThrottleClampedSoEveryDsLoadCanIssue) {
     HeuristicSchedulingKnobPolicy policy;
     SchedulingKnobOverrides overrides;
     // perWmma=min(3, ceil(16/4))=3, computed=(3/3)*16=16, arch floor 72.
-    // cycles per ds = 64/16=4, finish budget=4*16=64. 72 cannot issue every
-    // ds_load inside the WMMA latency sum, so the budget replaces the floor.
+    // float cycles per ds = 64/16=4, finish budget=4*16=64. 72 cannot issue
+    // every ds_load inside the WMMA latency sum, so the budget replaces the floor.
     const SchedulingFeatures features =
         makeFeatures(/*wmma=*/4, /*ds=*/16, /*firstWmmaLatency=*/3, /*sumWmmaLatency=*/64);
     const ResolvedSchedulingKnobs resolved = resolveSchedulingKnobs(features, overrides, policy);
@@ -157,22 +157,44 @@ TEST(SchedulingKnobHeuristics, ThrottleClampedSoEveryDsLoadCanIssue) {
 TEST(SchedulingKnobHeuristics, ThrottleKeepsComputedValueBelowFinishBudget) {
     HeuristicSchedulingKnobPolicy policy;
     SchedulingKnobOverrides overrides;
-    // computed=(32/3)*16=160. finish budget=(10000/12)*16 stays above 160.
+    // computed=(32/3)*16=160. float finish budget=(10000/12)*16 stays above 160.
     const SchedulingFeatures features =
         makeFeatures(/*wmma=*/4, /*ds=*/12, /*firstWmmaLatency=*/32, /*sumWmmaLatency=*/10000);
     const ResolvedSchedulingKnobs resolved = resolveSchedulingKnobs(features, overrides, policy);
     EXPECT_EQ(resolved.dsReadThrottleLatency, 160);
 }
 
-TEST(SchedulingKnobHeuristics, ThrottleBudgetOfZeroUsesSmallestHonoredValue) {
+TEST(SchedulingKnobHeuristics, ThrottleKeepsFractionalCyclesPerLoad) {
     HeuristicSchedulingKnobPolicy policy;
     SchedulingKnobOverrides overrides;
-    // sum/ds truncates to 0, so the finish budget is 0. 1 is the smallest
-    // positive throttle the accessor will not replace with the arch floor.
+    // Integer (8/16)*16 truncates to 0. Float keeps 0.5*16=8, so the arch
+    // floor of 72 is replaced by 8 instead of the smallest honored value.
     const SchedulingFeatures features =
         makeFeatures(/*wmma=*/4, /*ds=*/16, /*firstWmmaLatency=*/32, /*sumWmmaLatency=*/8);
     const ResolvedSchedulingKnobs resolved = resolveSchedulingKnobs(features, overrides, policy);
+    EXPECT_EQ(resolved.dsReadThrottleLatency, 8);
+}
+
+TEST(SchedulingKnobHeuristics, ThrottleBudgetBelowOneUsesSmallestHonoredValue) {
+    HeuristicSchedulingKnobPolicy policy;
+    SchedulingKnobOverrides overrides;
+    // float budget=(1/17)*16 is below 1. 1 is the smallest positive throttle
+    // the accessor will not replace with the arch floor.
+    const SchedulingFeatures features =
+        makeFeatures(/*wmma=*/4, /*ds=*/17, /*firstWmmaLatency=*/32, /*sumWmmaLatency=*/1);
+    const ResolvedSchedulingKnobs resolved = resolveSchedulingKnobs(features, overrides, policy);
     EXPECT_EQ(resolved.dsReadThrottleLatency, 1);
+}
+
+TEST(SchedulingKnobHeuristics, ThrottleFinishBudgetFloorsFractionalFloat) {
+    HeuristicSchedulingKnobPolicy policy;
+    SchedulingKnobOverrides overrides;
+    // computed=(32/3)*16=160. float budget=(100/12)*16 is 133.333..., so the
+    // stored int is 133. Integer (100/12)*16 would have been 128.
+    const SchedulingFeatures features =
+        makeFeatures(/*wmma=*/4, /*ds=*/12, /*firstWmmaLatency=*/32, /*sumWmmaLatency=*/100);
+    const ResolvedSchedulingKnobs resolved = resolveSchedulingKnobs(features, overrides, policy);
+    EXPECT_EQ(resolved.dsReadThrottleLatency, 133);
 }
 
 TEST(SchedulingKnobHeuristics, UserOverrideIndependentPerKnob) {

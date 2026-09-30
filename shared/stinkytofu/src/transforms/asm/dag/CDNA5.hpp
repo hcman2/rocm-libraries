@@ -656,6 +656,10 @@ class CDNA5ReadyQueue : public ReadyQueue {
     };
 
     int wmmaIssuedCountThisRegion_ = 0;
+    // Nearest later WMMA that reads each ds_load's dest VGPRs, as a 0-based
+    // program-order index in this region. Missing means this load has no child
+    // WMMA inside the region. Pointers address this region's DAG nodes.
+    std::unordered_map<const DAGNode*, int> dsLoadChildWmmaIndex_;
 
     BasicBlock* currentBB_ = nullptr;
     std::vector<Layer2BarrierOverlapCandidate> layer2BarrierOverlapCandidates_;
@@ -712,6 +716,11 @@ class CDNA5ReadyQueue : public ReadyQueue {
     DAGNode* pickOneFromWMMA(DAGNode* pick = nullptr);
     bool findSmallestPickableNonWmma(DAGNode* pickedDS, DAGNode** outNode, int* kindOut,
                                      int* outWait = nullptr) const;
+    void recordDsLoadChildWmmaIndices(const RegionDAG& dag);
+    // True when this ds_load's latencyCycles is longer than the cycle gap to its
+    // child WMMA (index diff times the active WMMA latency). Equal lengths do
+    // not qualify.
+    bool dsLoadLatencyExceedsChildWmmaGap(const DAGNode* ds) const;
 
     bool findOldestFallbackNonWmma(DAGNode* pickedDS, DAGNode** outNode, int* kindOut,
                                    int* outWait = nullptr) const;
@@ -1189,6 +1198,43 @@ DAGNode* CDNA5ReadyQueue::pickOneFromWMMA(DAGNode* pick) {
     return node;
 }
 
+void CDNA5ReadyQueue::recordDsLoadChildWmmaIndices(const RegionDAG& dag) {
+    dsLoadChildWmmaIndex_.clear();
+    std::unordered_map<const StinkyInstruction*, int> wmmaIndex;
+    int nextIndex = 0;
+    for (const DAGNode& node : dag.nodes) {
+        if (isMatrixInstruction(*node.inst)) wmmaIndex.emplace(node.inst, nextIndex++);
+    }
+    for (const DAGNode& node : dag.nodes) {
+        if (!isDSRead(*node.inst)) continue;
+        const auto destVGPRs = collectDestVGPRs(*node.inst);
+        int nearest = std::numeric_limits<int>::max();
+        for (unsigned succId : dag.graph[node.id]) {
+            const DAGNode& succ = dag.nodes[succId];
+            if (!isMatrixInstruction(*succ.inst)) continue;
+            if (!srcVGPRsOverlap(*succ.inst, destVGPRs)) continue;
+            auto it = wmmaIndex.find(succ.inst);
+            if (it == wmmaIndex.end()) continue;
+            nearest = std::min(nearest, it->second);
+        }
+        if (nearest != std::numeric_limits<int>::max())
+            dsLoadChildWmmaIndex_.emplace(&node, nearest);
+    }
+}
+
+bool CDNA5ReadyQueue::dsLoadLatencyExceedsChildWmmaGap(const DAGNode* ds) const {
+    if (ds == nullptr) return false;
+    auto it = dsLoadChildWmmaIndex_.find(ds);
+    if (it == dsLoadChildWmmaIndex_.end()) return false;
+    // wmmaIssuedCountThisRegion_ - 1 is the WMMA in progress. Before any WMMA
+    // issues, that index is -1 and the gap is the child's program index plus one.
+    const int indexDiff = it->second - (wmmaIssuedCountThisRegion_ - 1);
+    if (indexDiff <= 0) return false;
+    const int wmmaLatency = activeWmmaLatency_ > 0 ? activeWmmaLatency_ : wmmaIssueConfig.latency;
+    if (wmmaLatency <= 0) return false;
+    return ds->inst->latencyCycles > static_cast<long long>(indexDiff) * wmmaLatency;
+}
+
 // Pick among ready non-WMMA nodes, preferring genuinely RAW-free work.
 // Queues: globalReadQueue (throttled), localReadQueue, valuQueue (co-issue
 // gated), otherQueue. SALU/other and VALU picks go through pickFreeBest (elapse
@@ -1250,7 +1296,16 @@ bool CDNA5ReadyQueue::findSmallestPickableNonWmma(DAGNode* pickedDS, DAGNode** o
     const bool dsBaseOk = pickedDS && dsBudgetAllowsIssue && !destOverlapsActiveWmmaSrc(pickedDS);
     int dsThrottleWait = 0;
     if (dsBaseOk) {
-        dsThrottleWait = std::max(dsCapWait, dsReadThrottleWait());
+        // A near child WMMA may skip throttle pacing only. The cap wait stays:
+        // it is real elapsed time. #12458 still stands for hide-budget bypass.
+        int throttleWait = dsReadThrottleWait();
+        if (throttleWait > 0 && dsLoadLatencyExceedsChildWmmaGap(pickedDS)) {
+            PASS_DEBUG(std::cerr << "[CDNA5 ds throttle bypass] dagId=" << pickedDS->id
+                                 << " latencyCycles=" << pickedDS->inst->latencyCycles
+                                 << " throttleWait=" << throttleWait << "\n");
+            throttleWait = 0;
+        }
+        dsThrottleWait = std::max(dsCapWait, throttleWait);
         const int schedulingPos = coIssueCyclePos_ + dsSchedulingBudgetUsed_;
         int schedulingSpace = activeWmmaLatency_ - schedulingPos;
         for (int pos = schedulingPos; pos < activeWmmaLatency_; ++pos) {
@@ -2345,6 +2400,7 @@ void CDNA5ReadyQueue::onInitRegion(IRList::iterator regionStart, IRList::iterato
     // to gate here.
     hazardHoistCandidates_.clear();
     for (auto& gate : hazardGates_) gate.clear();
+    recordDsLoadChildWmmaIndices(deps.dag);
 
     if (getPassContext().getPassFeatureConfig().loopConfig.unrollGemm == false) return;
 
