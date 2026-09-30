@@ -651,6 +651,12 @@ class CDNA5ReadyQueue : public ReadyQueue {
     };
 
     int wmmaIssuedCountThisRegion_ = 0;
+    // 0-based estimated WMMA issue index for this region. Empty unless
+    // lockDsReadOrder produced an estimate: ds_load latency is treated as 0 and
+    // non-WMMA instructions are ignored, so only accumulator edges and DAG id
+    // remain. pickOneFromWMMA reports a fatal error when the issued WMMA's
+    // index (wmmaIssuedCountThisRegion_ - 1) is not the estimated index.
+    std::unordered_map<const StinkyInstruction*, int> estimatedWmmaIssueIndex_;
 
     BasicBlock* currentBB_ = nullptr;
     std::vector<Layer2BarrierOverlapCandidate> layer2BarrierOverlapCandidates_;
@@ -776,6 +782,7 @@ class CDNA5ReadyQueue : public ReadyQueue {
 
     void onInitRegion(IRList::iterator regionStart, IRList::iterator regionEnd,
                       IRList::iterator blockBegin, const RegionDependencies& deps) override;
+    void estimateLockedDsWmmaIssueOrder(const RegionDAG& dag);
 
     void onFinishBB() override;
 };
@@ -1166,6 +1173,18 @@ DAGNode* CDNA5ReadyQueue::pickOneFromWMMA(DAGNode* pick) {
 
     if (deferHeadBalanceThisRegion_) deferFirstHeadWmmaActive_ = false;
     wmmaIssuedCountThisRegion_++;
+    if (!estimatedWmmaIssueIndex_.empty()) {
+        const int actual = wmmaIssuedCountThisRegion_ - 1;
+        auto estimated = estimatedWmmaIssueIndex_.find(node->inst);
+        const bool found = estimated != estimatedWmmaIssueIndex_.end();
+        const int estimatedIndex = found ? estimated->second : -1;
+        if (!found || estimatedIndex != actual) {
+            report_fatal_error(
+                "estimated WMMA issue index does not match the issued WMMA: dagId=" +
+                std::to_string(node->id) + " actual=" + std::to_string(actual) +
+                " estimated=" + (found ? std::to_string(estimatedIndex) : std::string("missing")));
+        }
+    }
     if (hideBudget_.numWindows() > 0) {
         if (hideBudget_.issueBudgetByWmmaIndex) {
             const int windowIndex = wmmaIssuedCountThisRegion_ - 1;
@@ -2306,6 +2325,117 @@ void CDNA5ReadyQueue::onFinishBB() {
                                globalReadInflight_.maxResidual(), dsReadInflight_.residuals()});
 }
 
+// Estimate WMMA issue order under lockDsReadOrder. ds_load latency is 0, so a
+// ds_load does not contribute getMaxSrcDataWait. Non-WMMA instructions are not
+// scheduled, so a positive accumulator wait burns the rest of the active WMMA
+// window (Phase C) and the next WMMA is then chosen by findMostReadyWMMA's
+// (wait, DAG id) key. The map stays empty when every WMMA cannot be ordered.
+void CDNA5ReadyQueue::estimateLockedDsWmmaIssueOrder(const RegionDAG& dag) {
+    estimatedWmmaIssueIndex_.clear();
+
+    struct SimWmma {
+        const DAGNode* node = nullptr;
+        int latency = 0;
+        int issueCycles = 0;
+        int predsLeft = 0;
+        std::vector<int> dataPreds;
+        int stampRemaining = 0;
+        bool issued = false;
+    };
+
+    std::vector<int> nodeToSim(dag.nodes.size(), -1);
+    std::vector<SimWmma> sim;
+    sim.reserve(dag.nodes.size());
+    for (const DAGNode& node : dag.nodes) {
+        if (!isMatrixInstruction(*node.inst)) continue;
+        nodeToSim[node.id] = static_cast<int>(sim.size());
+        SimWmma entry;
+        entry.node = &node;
+        entry.latency = node.inst->latencyCycles;
+        entry.issueCycles = node.inst->issueCycles;
+        sim.push_back(std::move(entry));
+    }
+    if (sim.empty()) return;
+
+    const int simCount = static_cast<int>(sim.size());
+    for (int i = 0; i < simCount; ++i) {
+        for (unsigned succId : dag.graph[sim[i].node->id]) {
+            if (succId >= nodeToSim.size()) continue;
+            const int succ = nodeToSim[succId];
+            if (succ < 0) continue;
+            sim[succ].predsLeft++;
+            if (srcVGPRsOverlap(*sim[succ].node->inst, collectDestVGPRs(*sim[i].node->inst)))
+                sim[succ].dataPreds.push_back(i);
+        }
+    }
+
+    auto decay = [&](int cycles) {
+        if (cycles <= 0) return;
+        for (SimWmma& wmma : sim) {
+            if (!wmma.issued) continue;
+            wmma.stampRemaining = std::max(0, wmma.stampRemaining - cycles);
+        }
+    };
+    auto waitOf = [&](int index) {
+        int wait = 0;
+        for (int pred : sim[index].dataPreds) wait = std::max(wait, sim[pred].stampRemaining);
+        return wait;
+    };
+    auto selectReady = [&]() {
+        int best = -1;
+        int bestWait = std::numeric_limits<int>::max();
+        unsigned bestId = std::numeric_limits<unsigned>::max();
+        for (int i = 0; i < simCount; ++i) {
+            if (sim[i].issued || sim[i].predsLeft > 0) continue;
+            const int wait = waitOf(i);
+            const unsigned id = sim[i].node->id;
+            if (best < 0 || wait < bestWait || (wait == bestWait && id < bestId)) {
+                best = i;
+                bestWait = wait;
+                bestId = id;
+            }
+        }
+        return std::pair<int, int>{best, best < 0 ? 0 : bestWait};
+    };
+
+    int coPos = 0;
+    int activeLatency = 0;
+    bool hasActive = false;
+    std::unordered_map<const StinkyInstruction*, int> estimated;
+    for (int issued = 0; issued < simCount; ++issued) {
+        auto [best, bestWait] = selectReady();
+        if (best < 0) return;
+        if (bestWait > 0) {
+            if (!hasActive || coPos >= activeLatency) return;
+            decay(activeLatency - coPos);
+            coPos = activeLatency;
+            std::tie(best, bestWait) = selectReady();
+            if (best < 0 || bestWait > 0) return;
+        }
+        if (hasActive && coPos < activeLatency) {
+            decay(activeLatency - coPos);
+            coPos = activeLatency;
+        }
+        SimWmma& chosen = sim[best];
+        coPos = 0;
+        activeLatency = chosen.latency;
+        hasActive = true;
+        decay(chosen.issueCycles);
+        coPos = chosen.issueCycles;
+        chosen.stampRemaining = std::max(0, chosen.latency - chosen.issueCycles);
+        chosen.issued = true;
+        for (unsigned succId : dag.graph[chosen.node->id]) {
+            if (succId >= nodeToSim.size()) continue;
+            const int succ = nodeToSim[succId];
+            if (succ >= 0) sim[succ].predsLeft--;
+        }
+        estimated.emplace(chosen.node->inst, issued);
+        PASS_DEBUG(std::cerr << "[CDNA5 estimated wmma order] index=" << issued
+                             << " dagId=" << chosen.node->id << "\n");
+    }
+    estimatedWmmaIssueIndex_ = std::move(estimated);
+}
+
 // Per scheduling region. Rule (4): per-WMMA-window DS cap (computed in
 // pickOneFromWMMA). Rule (2): seedWmmaDsLatencyFromPrefix. Rule (5): head
 // balance. Barrier thresholds: computeBarrierAfterThresholds /
@@ -2313,6 +2443,7 @@ void CDNA5ReadyQueue::onFinishBB() {
 void CDNA5ReadyQueue::onInitRegion(IRList::iterator regionStart, IRList::iterator regionEnd,
                                    IRList::iterator blockBegin, const RegionDependencies& deps) {
     wmmaIssuedCountThisRegion_ = 0;
+    estimatedWmmaIssueIndex_.clear();
     lastPickedNode_ = nullptr;
     // SCC chain locks are per-region: chain ids index the prior region's
     // DAGNodeList, and region boundaries are side-effect cuts no reordering
@@ -2427,6 +2558,30 @@ void CDNA5ReadyQueue::onInitRegion(IRList::iterator regionStart, IRList::iterato
             PASS_DEBUG(std::cerr << "[CDNA5 onInitRegion ds priority] predecessor=" << loads[i - 1]
                                  << " pri=" << dsReadPriorityOf(loads[i - 1]) << " successor="
                                  << loads[i] << " pri=" << dsReadPriorityOf(loads[i]) << "\n");
+        }
+        // ds_load latency is taken as 0 and non-WMMA fillers are ignored, so the
+        // WMMA issue order is the accumulator-edge order with DAG-id ties.
+        // Leaves estimatedWmmaIssueIndex_ empty when that order cannot be built.
+        estimateLockedDsWmmaIssueOrder(deps.dag);
+        // Chain WMMAs in that estimated issue order. Same requestedConstraints
+        // path as the ds_load priority edges above: the caller drops a link that
+        // would close a cycle. An empty estimate adds nothing.
+        if (!estimatedWmmaIssueIndex_.empty()) {
+            std::vector<StinkyInstruction*> ordered(estimatedWmmaIssueIndex_.size(), nullptr);
+            for (IRList::iterator it = regionStart; it != regionEnd; ++it) {
+                auto* instPtr = dyn_cast<StinkyInstruction>(it.getNodePtr());
+                if (instPtr == nullptr) continue;
+                auto estimated = estimatedWmmaIssueIndex_.find(instPtr);
+                if (estimated == estimatedWmmaIssueIndex_.end()) continue;
+                ordered[estimated->second] = instPtr;
+            }
+            for (size_t i = 1; i < ordered.size(); ++i) {
+                if (ordered[i - 1] == nullptr || ordered[i] == nullptr) continue;
+                deps.requestedConstraints.emplace_back(ordered[i - 1], ordered[i]);
+                PASS_DEBUG(std::cerr << "[CDNA5 estimated wmma order] link index=" << (i - 1)
+                                     << "->" << i << " predecessor=" << ordered[i - 1]
+                                     << " successor=" << ordered[i] << "\n");
+            }
         }
     }
 
