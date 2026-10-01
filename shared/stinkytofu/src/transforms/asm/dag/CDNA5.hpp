@@ -657,6 +657,12 @@ class CDNA5ReadyQueue : public ReadyQueue {
     // remain. pickOneFromWMMA reports a fatal error when the issued WMMA's
     // index (wmmaIssuedCountThisRegion_ - 1) is not the estimated index.
     std::unordered_map<const StinkyInstruction*, int> estimatedWmmaIssueIndex_;
+    // latencyCycles of the WMMA at each estimated issue index. Parallel to
+    // estimatedWmmaIssueIndex_; empty whenever that map is empty.
+    std::vector<int> estimatedWmmaLatencyByIndex_;
+    // Direct register-DAG WMMA successor with the smallest estimated issue
+    // index. Absent when the ds_load has no such child, or no WMMA order.
+    std::unordered_map<const StinkyInstruction*, int> dsNearestChildWmmaIndex_;
 
     BasicBlock* currentBB_ = nullptr;
     std::vector<Layer2BarrierOverlapCandidate> layer2BarrierOverlapCandidates_;
@@ -668,10 +674,13 @@ class CDNA5ReadyQueue : public ReadyQueue {
     // to gate the phases.
     PromotePhase promotedPhase_ = PromotePhase::None;
     DAGNode* promotedNode_ = nullptr;
-    // Valid only when promotedPhase_ == PromotePhase::NonWmmaFill via the
-    // hazard-hoist case: which queue (NonWmmaKind: kOther or kValu) promotedNode_
-    // must be popped from.
+    // Valid only when promotedPhase_ == PromotePhase::NonWmmaFill: which queue
+    // (NonWmmaKind) promotedNode_ must be popped from.
     int promotedKind_ = -1;
+    // NonWmmaFill promotion of a ds_load that can no longer hide its latency
+    // before the nearest child WMMA. Distinct from hazard hoist so the pick log
+    // names the rule that fired.
+    bool promotedForChildWmmaLatency_ = false;
 
     // Open SCC chain blocks handshake barriers (see cluster-barrier.md).
     unsigned openSccChain_ = 0;
@@ -729,8 +738,13 @@ class CDNA5ReadyQueue : public ReadyQueue {
     // threshold is met (formerly the forced-barrier phase), and a hazard-hoist
     // producer whose live clock_ has reached its hazardDeadline (forces the
     // producer to issue now, through its own NonWmmaFill phase, so it lands
-    // before its hazarded consumer needs the gap instead of after).
+    // before its hazarded consumer needs the gap instead of after). A ready
+    // ds_load whose nearest direct WMMA child is closer, on the estimated WMMA
+    // order, than that ds_load's latency is forced the same way and skips the
+    // DS budget and throttle gates.
     void decidePromote();
+    int cyclesUntilEstimatedWmma(int childIndex) const;
+    void recordDsNearestChildWmma(const RegionDAG& dag);
     bool isPromote(PromotePhase phase) const {
         return promotedPhase_ == PromotePhase::None || promotedPhase_ == phase;
     }
@@ -1379,10 +1393,42 @@ void CDNA5ReadyQueue::noteSccChainIssue(DAGNode* node) {
     if (--sccReadersLeft_ == 0) openSccChain_ = 0;
 }
 
+int CDNA5ReadyQueue::cyclesUntilEstimatedWmma(int childIndex) const {
+    const int issued = std::clamp(wmmaIssuedCountThisRegion_, 0,
+                                  static_cast<int>(estimatedWmmaLatencyByIndex_.size()));
+    const int end =
+        std::clamp(childIndex, 0, static_cast<int>(estimatedWmmaLatencyByIndex_.size()));
+    if (end <= issued) return 0;
+    int cycles = 0;
+    for (int i = issued; i < end; ++i)
+        cycles += estimatedWmmaLatencyByIndex_[static_cast<size_t>(i)];
+    return cycles;
+}
+
+void CDNA5ReadyQueue::recordDsNearestChildWmma(const RegionDAG& dag) {
+    dsNearestChildWmmaIndex_.clear();
+    if (estimatedWmmaIssueIndex_.empty()) return;
+    for (const DAGNode& node : dag.nodes) {
+        if (!isDSRead(*node.inst)) continue;
+        int nearest = std::numeric_limits<int>::max();
+        for (unsigned succId : dag.graph[node.id]) {
+            if (succId >= dag.nodes.size()) continue;
+            const DAGNode& succ = dag.nodes[succId];
+            if (!isMatrixInstruction(*succ.inst)) continue;
+            auto it = estimatedWmmaIssueIndex_.find(succ.inst);
+            if (it == estimatedWmmaIssueIndex_.end()) continue;
+            nearest = std::min(nearest, it->second);
+        }
+        if (nearest == std::numeric_limits<int>::max()) continue;
+        dsNearestChildWmmaIndex_.emplace(node.inst, nearest);
+    }
+}
+
 void CDNA5ReadyQueue::decidePromote() {
     promotedPhase_ = PromotePhase::None;
     promotedNode_ = nullptr;
     promotedKind_ = -1;
+    promotedForChildWmmaLatency_ = false;
 
     if (!barrierQueue.empty() && !barrierWmmaThresholds_.empty()) {
         for (DAGNode* node : barrierQueue) {
@@ -1397,6 +1443,41 @@ void CDNA5ReadyQueue::decidePromote() {
                                      << " threshold=" << thIt->second << "\n");
                 return;
             }
+        }
+    }
+
+    // A ready ds_load whose nearest direct WMMA child will issue sooner than
+    // this load's latency can no longer be hidden by waiting. Force it now.
+    // Budget and throttle are pacing, so they are skipped; a RAW/hazard wait or
+    // an overlap with the active WMMA's sources is not, and the DAG still has
+    // to have made the load ready. The closest child, then dsReadPriority, then
+    // DAG id, wins when several loads are late together.
+    if (!dsNearestChildWmmaIndex_.empty()) {
+        DAGNode* urgent = nullptr;
+        std::tuple<int, unsigned, unsigned> urgentKey{};
+        for (DAGNode* node : localReadQueue) {
+            auto child = dsNearestChildWmmaIndex_.find(node->inst);
+            if (child == dsNearestChildWmmaIndex_.end()) continue;
+            const int distance = cyclesUntilEstimatedWmma(child->second);
+            if (distance >= node->inst->latencyCycles) continue;
+            if (getMaxSrcDataWait(node) > 0 || getHazardWait(node) > 0) continue;
+            if (destOverlapsActiveWmmaSrc(node)) continue;
+            const auto key = std::make_tuple(distance, node->dsReadPriority, node->id);
+            if (urgent != nullptr && key >= urgentKey) continue;
+            urgent = node;
+            urgentKey = key;
+        }
+        if (urgent != nullptr) {
+            promotedPhase_ = PromotePhase::NonWmmaFill;
+            promotedNode_ = urgent;
+            promotedKind_ = kLocalRead;
+            promotedForChildWmmaLatency_ = true;
+            PASS_DEBUG(std::cerr << "[CDNA5 decidePromote] force ds_load dagId=" << urgent->id
+                                 << " childWmmaIndex="
+                                 << dsNearestChildWmmaIndex_.find(urgent->inst)->second
+                                 << " distance=" << std::get<0>(urgentKey)
+                                 << " latency=" << urgent->inst->latencyCycles << "\n");
+            return;
         }
     }
 
@@ -2000,9 +2081,15 @@ DAGNode* CDNA5ReadyQueue::pickOne() {
         // findSmallestPickableNonWmma selection (which would otherwise rank it as
         // ordinary work and might not pick it this cycle, missing the deadline).
         if (promotedPhase_ == PromotePhase::NonWmmaFill && promotedNode_) {
-            PASS_DEBUG(std::cerr << "[CDNA5 pickOne] hazard-hoist promoted dagId="
-                                 << promotedNode_->id << " kind=" << promotedKind_ << " deadline="
-                                 << promotedNode_->hazardDeadline << " clock=" << clock_ << "\n");
+            if (promotedForChildWmmaLatency_) {
+                PASS_DEBUG(std::cerr << "[CDNA5 pickOne] child-latency forced ds_load dagId="
+                                     << promotedNode_->id << "\n");
+            } else {
+                PASS_DEBUG(std::cerr << "[CDNA5 pickOne] hazard-hoist promoted dagId="
+                                     << promotedNode_->id << " kind=" << promotedKind_
+                                     << " deadline=" << promotedNode_->hazardDeadline
+                                     << " clock=" << clock_ << "\n");
+            }
             return rememberPick(popNonWmma(promotedNode_, promotedKind_));
         }
 
@@ -2332,6 +2419,8 @@ void CDNA5ReadyQueue::onFinishBB() {
 // (wait, DAG id) key. The map stays empty when every WMMA cannot be ordered.
 void CDNA5ReadyQueue::estimateLockedDsWmmaIssueOrder(const RegionDAG& dag) {
     estimatedWmmaIssueIndex_.clear();
+    estimatedWmmaLatencyByIndex_.clear();
+    dsNearestChildWmmaIndex_.clear();
 
     struct SimWmma {
         const DAGNode* node = nullptr;
@@ -2402,6 +2491,8 @@ void CDNA5ReadyQueue::estimateLockedDsWmmaIssueOrder(const RegionDAG& dag) {
     int activeLatency = 0;
     bool hasActive = false;
     std::unordered_map<const StinkyInstruction*, int> estimated;
+    std::vector<int> latencies;
+    latencies.reserve(static_cast<size_t>(simCount));
     for (int issued = 0; issued < simCount; ++issued) {
         auto [best, bestWait] = selectReady();
         if (best < 0) return;
@@ -2430,10 +2521,15 @@ void CDNA5ReadyQueue::estimateLockedDsWmmaIssueOrder(const RegionDAG& dag) {
             if (succ >= 0) sim[succ].predsLeft--;
         }
         estimated.emplace(chosen.node->inst, issued);
+        latencies.push_back(chosen.latency);
         PASS_DEBUG(std::cerr << "[CDNA5 estimated wmma order] index=" << issued
                              << " dagId=" << chosen.node->id << "\n");
     }
     estimatedWmmaIssueIndex_ = std::move(estimated);
+    estimatedWmmaLatencyByIndex_ = std::move(latencies);
+    // Register-DAG children only. ds priority edges and the WMMA-order chain are
+    // requested after this returns, and neither is a data child of the load.
+    recordDsNearestChildWmma(dag);
 }
 
 // Per scheduling region. Rule (4): per-WMMA-window DS cap (computed in
@@ -2444,6 +2540,8 @@ void CDNA5ReadyQueue::onInitRegion(IRList::iterator regionStart, IRList::iterato
                                    IRList::iterator blockBegin, const RegionDependencies& deps) {
     wmmaIssuedCountThisRegion_ = 0;
     estimatedWmmaIssueIndex_.clear();
+    estimatedWmmaLatencyByIndex_.clear();
+    dsNearestChildWmmaIndex_.clear();
     lastPickedNode_ = nullptr;
     // SCC chain locks are per-region: chain ids index the prior region's
     // DAGNodeList, and region boundaries are side-effect cuts no reordering

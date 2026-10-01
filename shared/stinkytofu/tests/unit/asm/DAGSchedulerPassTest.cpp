@@ -2017,6 +2017,69 @@ TEST_F(DAGSchedulerPassTest, DsReadThrottle_HideBudgetKeepsFreeWorkAheadOfThrott
            "outranks a DS blocked by throttle pacing / the per-WMMA DS cap";
 }
 
+// lockDsReadOrder builds an estimated WMMA issue order. A ready ds_load whose
+// nearest direct WMMA child is fewer cycles away than the load's own latency
+// is forced immediately, ahead of that child and ahead of a free VALU, and the
+// next such load is not held back by queue-depth throttle.
+TEST_F(DAGSchedulerPassTest, DsReadChildLatency_ForcesLoadBeforeNearWmma) {
+    BasicBlock* body = bb;
+    body->addSuccessor(body);
+
+    StinkyInstruction* farWmma =
+        createWmmaF32_16x16x16_bf16_in(body, /*destStart=*/400, /*src0Start=*/500);
+    farWmma->latencyCycles = 8;
+    StinkyInstruction* filler =
+        createVAddInBlock(body, arch, /*destReg=*/100, /*src0Reg=*/101, /*src1Reg=*/102);
+    StinkyInstruction* ds0 = createMovableDsLoad(/*destReg=*/0, /*addrReg=*/300, /*ldsToken=*/1);
+    StinkyInstruction* ds1 = createMovableDsLoad(/*destReg=*/4, /*addrReg=*/304, /*ldsToken=*/2);
+    ds0->latencyCycles = 56;
+    ds1->latencyCycles = 56;
+    StinkyInstruction* child =
+        createWmmaF32_16x16x16_bf16_in(body, /*destStart=*/200, /*src0Start=*/0);
+    child->latencyCycles = 8;
+    StinkyInstruction* unrelated =
+        createMovableDsLoad(/*destReg=*/80, /*addrReg=*/380, /*ldsToken=*/3);
+
+    // Depth 1 would normally separate ds0 and ds1. Both feed `child`, and the
+    // only WMMA before `child` costs 8 cycles, which is less than 56.
+    runPassWithDsReadThrottle(/*queueDepth=*/1, /*throttleLatency=*/64);
+
+    const int ds0Pos = positionOf(*body, ds0);
+    const int ds1Pos = positionOf(*body, ds1);
+    const int firstDs = ds0Pos < ds1Pos ? ds0Pos : ds1Pos;
+    const int secondDs = ds0Pos < ds1Pos ? ds1Pos : ds0Pos;
+    EXPECT_EQ(secondDs, firstDs + 1)
+        << "the two urgent ds_loads must issue together; depth-1 throttle must not split them";
+    EXPECT_LT(secondDs, positionOf(*body, farWmma));
+    EXPECT_LT(positionOf(*body, farWmma), positionOf(*body, child));
+    EXPECT_LT(secondDs, positionOf(*body, filler));
+    EXPECT_LT(secondDs, positionOf(*body, unrelated))
+        << "a ds_load with no WMMA child stays behind the forced pair";
+}
+
+// Same shape, but the intervening WMMA is longer than the ds_load latency, so
+// the force rule stays quiet and Phase B still issues that WMMA first.
+TEST_F(DAGSchedulerPassTest, DsReadChildLatency_LeavesSlackLoadOnNormalPath) {
+    BasicBlock* body = bb;
+    body->addSuccessor(body);
+
+    StinkyInstruction* farWmma =
+        createWmmaF32_16x16x16_bf16_in(body, /*destStart=*/400, /*src0Start=*/500);
+    farWmma->latencyCycles = 8;
+    StinkyInstruction* ds = createMovableDsLoad(/*destReg=*/0, /*addrReg=*/300, /*ldsToken=*/1);
+    ds->latencyCycles = 4;
+    StinkyInstruction* child =
+        createWmmaF32_16x16x16_bf16_in(body, /*destStart=*/200, /*src0Start=*/0);
+    child->latencyCycles = 8;
+    createVAddInBlock(body, arch, /*destReg=*/100, /*src0Reg=*/101, /*src1Reg=*/102);
+
+    runPassWithDsReadThrottle(/*queueDepth=*/1, /*throttleLatency=*/64);
+
+    EXPECT_LT(positionOf(*body, farWmma), positionOf(*body, ds))
+        << "distance 8 is not less than ds latency 4, so the ds_load is not forced";
+    EXPECT_LT(positionOf(*body, ds), positionOf(*body, child));
+}
+
 TEST_F(DAGSchedulerPassTest, DsReadThrottle_BudgetedDsBeatsRealStallWhenNoFreeWork) {
     BasicBlock* body = bb;
     body->addSuccessor(body);
