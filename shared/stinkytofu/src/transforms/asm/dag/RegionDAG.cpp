@@ -139,25 +139,6 @@ static void chainGirFencePieces(RegionDAG& dag) {
         }
         if (isBarrier(inst)) pendingSignal = nullptr;
     }
-
-    // Pre-schedule GIR placement materializes a physical split barrier without a GirActionData
-    // action. Keep its signal before its wait explicitly, including the case where block-local
-    // scheduling needs no memory token on either half.
-    DAGNode* pendingSignal = nullptr;
-    for (DAGNode& node : dag.nodes) {
-        StinkyInstruction& inst = *node.inst;
-        if (isBarrierSignal(inst) && isSplitBarrierAllWave(inst)) {
-            pendingSignal = &node;
-            continue;
-        }
-        if (isBarrierWait(inst) && isSplitBarrierAllWave(inst) && pendingSignal) {
-            orderInRegion(dag, pendingSignal->inst, node.inst,
-                          "physical GIR split barrier cannot be ordered");
-            pendingSignal = nullptr;
-            continue;
-        }
-        if (isBarrier(inst)) pendingSignal = nullptr;
-    }
 }
 
 void addGirFrameHazardEdges(RegionDAG& dag, const GirFrameHazardAnalysis::Result& hazards,
