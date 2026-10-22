@@ -3595,8 +3595,8 @@ void CDNA5ReadyQueue::onInitRegion(IRList::iterator regionStart, IRList::iterato
         // rather than assuming a CFG header or the first barrier in the region is the head.
         if (wmmaQueueDepth() > 1) {
             const int headThreshold = wmmaQueueDepth();
-            const auto barrierGroups = groupBarrierTokens(
-                collectBarrierTokens(regionStart, regionEnd, /*useSrc=*/true));
+            const auto barrierGroups =
+                groupBarrierTokens(collectBarrierTokens(regionStart, regionEnd, /*useSrc=*/true));
             std::unordered_map<StinkyInstruction*, unsigned> instOrder;
             unsigned order = 0;
             for (IRList::iterator it = regionStart; it != regionEnd; ++it) {
@@ -3616,8 +3616,8 @@ void CDNA5ReadyQueue::onInitRegion(IRList::iterator regionStart, IRList::iterato
                         break;
                     }
                     auto it = barrierWmmaThresholds_.find(barrier);
-                    if (it == barrierWmmaThresholds_.end() ||
-                        !beforeThresholds.contains(barrier) || afterThresholds.contains(barrier)) {
+                    if (it == barrierWmmaThresholds_.end() || !beforeThresholds.contains(barrier) ||
+                        afterThresholds.contains(barrier)) {
                         beforeOnlyPair = false;
                         break;
                     }
@@ -3644,9 +3644,9 @@ void CDNA5ReadyQueue::onInitRegion(IRList::iterator regionStart, IRList::iterato
                         if (instOrder.at(later.barriers.front()) <= dsOrder) continue;
                         bool laterAllWavePair = later.barriers.size() == 2;
                         for (StinkyInstruction* barrier : later.barriers)
-                            laterAllWavePair &= (isBarrierSignal(*barrier) ||
-                                                 isBarrierWait(*barrier)) &&
-                                                isSplitBarrierAllWave(*barrier);
+                            laterAllWavePair &=
+                                (isBarrierSignal(*barrier) || isBarrierWait(*barrier)) &&
+                                isSplitBarrierAllWave(*barrier);
                         if (!laterAllWavePair) continue;
                         for (uint32_t token : consumedTokens)
                             hasLoopCarriedTokenChain |= later.tokens.contains(token);
