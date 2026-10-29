@@ -717,10 +717,16 @@ def test_brotate_rejects_mx_matrix_inst_and_sparse():
     s["ProblemType"] = {**s["ProblemType"], "Sparse": 1}
     _brot_rejects(s, "sparse")
 
+def test_brotate_allows_tdmfuse_0_and_1():
+    assert b_rotate_reason(_brot_state(TDMFuse=0)) is None
+    assert b_rotate_reason(_brot_state(TDMFuse=1)) is None
+    for fuse in (2, 3, 4):
+        _brot_rejects(_brot_state(TDMFuse=fuse), "TDMFuse>1")
+
 def test_brotate_rejects_each_unsupported_knob():
     for key in ("UseSubtileImpl", "DirectToVgprA", "DirectToVgprB", "DirectToLdsB", "enableLDSTrA",
                 "enableLDSTrB", "UseDotInstruction", "UseCustomMainLoopSchedule",
-                "PrefetchAcrossPersistent", "TDMFuse"):
+                "PrefetchAcrossPersistent"):
         _brot_rejects(_brot_state(**{key: 1}), key)
     _brot_rejects(_brot_state(LocalSplitU=2), "LocalSplitU")
     _brot_rejects(_brot_state(NumWaveSplitK=2), "NumWaveSplitK")

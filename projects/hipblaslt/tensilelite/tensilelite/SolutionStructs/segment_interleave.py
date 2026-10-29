@@ -510,10 +510,14 @@ def b_rotate_reason(state, persistent=False):
     if state.get("TDMSplit") or TDMSplit.any_split(state):    return "TDMSplit not supported"
     for key in ("UseSubtileImpl", "DirectToVgprA", "DirectToVgprB", "DirectToLdsB",
                 "enableLDSTrA", "enableLDSTrB", "UseDotInstruction", "UseCustomMainLoopSchedule",
-                "PrefetchAcrossPersistent", "TDMFuse"):
+                "PrefetchAcrossPersistent"):
         v = state.get(key)
         # -1 (auto) means unresolved/off for the tri-state knobs; only a positive value enables.
         if v is True or (isinstance(v, int) and v > 0):      return "%s not supported" % key
+    # 0 is the default {A,B} row. 1 is paired {A,MXSA}+{MXSB,B}, or unfused when there is no
+    # scale to pair. Both keep the two-component local-read layout B-rotate addresses. 2/3/4
+    # change the wave split.
+    if state.get("TDMFuse", 0) not in (0, 1, None):          return "TDMFuse>1 not supported"
     if state.get("LocalSplitU", 1) > 1:                       return "LocalSplitU>1 not supported"
     if state.get("NumWaveSplitK", 1) > 1:                     return "NumWaveSplitK>1 not supported"
     if persistent:                                            return "persistent / StreamK not supported"
