@@ -7276,7 +7276,10 @@ class Solution(collections.abc.Mapping):
         reject(state, printRejectionReason, "LDSSegmentBRotate: %s" % _bRotReason)
         return
     # Persistent kernels retain their existing interleave offsets and buffer swaps.
-    if state["LDSSegmentInterleave"] == 1 and not state["TDMSplit"] and not _segAligned and not isPersistent(state):
+    # Derivation pops the TDMSplit shorthand after expanding it into TDMSplitA/B, so the key is
+    # gone here. Either spelling is a split; the paired layout does not support one.
+    _tdmSplit = bool(state.get("TDMSplit")) or TDMSplit.any_split(state)
+    if state["LDSSegmentInterleave"] == 1 and not _tdmSplit and not _segAligned and not isPersistent(state):
       _pairedReason = None if state["LDSSegmentBRotate"] else segPairedReason(state, isPersistent(state))
       if _pairedReason is None:
         _pairedOffsets = segPairedOffsets(state)
@@ -7296,7 +7299,7 @@ class Solution(collections.abc.Mapping):
         # Pairing failed in auto mode. Keep the ordinary LDS offsets, buffer
         # swap policy and byte count calculated above.
         state["LDSSegmentInterleave"] = 0
-    if state["LDSSegmentInterleave"] == 0 and not state["TDMSplit"]:
+    if state["LDSSegmentInterleave"] == 0 and not _tdmSplit:
       state["LDSSegInterleaveOffsets"] = {}
 
     # lds size is the greater of the two

@@ -1513,8 +1513,27 @@ class Module(Item):
         pgr_range = _detect_pgr_range(self.itemList)
         epilogue_range = _detect_epilogue_range(self.itemList)
         self._populate_logical_module(lm, pgr_range, epilogue_range)
+        asm_module = _st.lower_logical_module(lm, list(arch), options)
+        # The native rocisa converter records this as it transfers each action
+        # to asm IR. The logical path already carries the same GirActionData;
+        # publish the matching count so GirFrameContractImportPass can verify
+        # that a supplied contract has instruction-side action tags.
+        action_count = self._count_gir_actions()
+        if action_count:
+            asm_module.setPluginDataI64("gir.action_tag_count", action_count)
+        return _PostProcessModule(asm_module)
 
-        return _PostProcessModule(_st.lower_logical_module(lm, list(arch), options))
+    def _count_gir_actions(self) -> int:
+        """Count source instructions with GIR tags, including nested modules."""
+        count = 0
+        for item in self.itemList:
+            if isinstance(item, Module):
+                count += item._count_gir_actions()
+                continue
+            getter = getattr(item, "getGirActionData", None)
+            if callable(getter) and getter() is not None:
+                count += 1
+        return count
 
     def _populate_logical_module(
         self, lm: Any, pgr_range: Any = None, epilogue_range: Any = None
