@@ -276,7 +276,7 @@ class FrameHazards(_FrameHazards):
 class SchedulingFrameHazards(_FrameHazards):
     """Exact representative-agent address hazards.
 
-    HoistCopiesPass reads them to decide whether a copy may move earlier in a block body. They
+    The copy_hoist stage reads them to decide whether a copy may move earlier in a block body. They
     order actions; they do not produce a barrier, wait or fence.
     """
 

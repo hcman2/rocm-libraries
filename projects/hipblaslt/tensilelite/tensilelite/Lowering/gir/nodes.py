@@ -335,7 +335,7 @@ class GenPhi:
     """A general frame phi: `gen = phi(pred0:value0, pred1:value1, ...)`.
 
  gen -- the Gen this phi defines.
- entry_val -- legacy loop-entry value before EntranceFramePhisPass makes inputs explicit.
+ entry_val -- legacy loop-entry value before the phi stage makes inputs explicit.
  incomings -- `(predecessor, value)`; `None` forwards that predecessor's transferred value.
  """
     gen:       Gen

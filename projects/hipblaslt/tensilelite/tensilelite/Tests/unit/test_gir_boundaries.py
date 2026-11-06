@@ -69,9 +69,9 @@ def test_hazard_analyses_only_verify_or_order_actions():
     roots = (LOWERING_ROOT, PACKAGE_ROOT / "Components")
     frame = _importers("analyses.frame_hazards", roots)
     reg = _importers("analyses.reg_hazards", roots)
-    assert frame == {"Lowering/gir/verify.py", "Lowering/gir/passes/hoist_copies.py",
+    assert frame == {"Lowering/gir/verify.py", "Lowering/gir/stages/hoist_copies.py",
                      "Lowering/gir/analyses/reg_hazards.py"}
-    assert reg == {"Lowering/gir/passes/hoist_copies.py"}
+    assert reg == {"Lowering/gir/stages/hoist_copies.py"}
 
 
 def test_frame_contract_carries_state_not_synchronization_policy():

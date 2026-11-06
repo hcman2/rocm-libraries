@@ -9,8 +9,8 @@ stages and can compare each prefix with the flat path.
 from __future__ import annotations
 
 from ..stages.cfg import cfg
-from .entrance_frames import EntranceFramePhisPass
-from .hoist_copies import HoistCopiesPass
+from ..stages.entrance_frames import entrance_frames
+from ..stages.hoist_copies import hoist_copies
 from .collect_pending import CollectPendingMarksPass
 from .placement import PlacementPass
 from .apply_marks import ApplyMarksPass
@@ -33,8 +33,8 @@ def stage_groups():
     """
     return (
         ("cfg", (_Stage(cfg),)),
-        ("phi", (EntranceFramePhisPass(),)),
-        ("copy_hoist", (HoistCopiesPass(reads=True),)),
+        ("phi", (_Stage(entrance_frames),)),
+        ("copy_hoist", (_Stage(hoist_copies),)),
         ("mark_placement", (
             CollectPendingMarksPass(),
             PlacementPass(),

@@ -21,22 +21,14 @@ from __future__ import annotations
 
 from .analysis import AnalysisManager
 from .passes.collect_pending import CollectPendingMarksPass
-from .passes.entrance_frames import EntranceFramePhisPass
-from .passes.hoist_copies import HoistCopiesPass
 from .passes.placement import PlacementPass
 from .passes.apply_marks import ApplyMarksPass
 from .passes.record_unemitted import RecordUnemittedPass
 from .schedule import finalize
 from .stages.cfg import cfg as _cfg
+from .stages.entrance_frames import entrance_frames as _phi
+from .stages.hoist_copies import hoist_copies as _copy_hoist
 from .verify import verify_gir
-
-
-def _phi(prog, am):
-    EntranceFramePhisPass().run(prog, am)
-
-
-def _copy_hoist(prog, am):
-    HoistCopiesPass(reads=True).run(prog, am)
 
 
 def _mark_placement(prog, am):

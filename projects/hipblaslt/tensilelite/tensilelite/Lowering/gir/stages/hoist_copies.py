@@ -10,7 +10,6 @@ from __future__ import annotations
 from ..nodes import Mma, Move
 from ..analyses.frame_hazards import SchedulingFrameHazards, RAW
 from ..analyses.reg_hazards import RegHazards
-from .base import Pass
 
 
 #: WMMA issued between a read's hazard floor and its slot. The floor only ORDERS the read behind
@@ -221,33 +220,26 @@ def hoisted(blk, lds, reg=(), group=True, reads=False, copies=True):
     return out
 
 
-class HoistCopiesPass(Pass):
-    """See module docstring.  Runs before the tokens so every later analysis sees this order."""
+def hoist_copies(prog, am, *, group=True, reads=True, copies=True):
+    """Runs before the tokens so every later analysis sees this order."""
+    def apply(*, copies, reads):
+        lds, reg = am.get(SchedulingFrameHazards(), prog), am.get(RegHazards(), prog)
+        moved = False
+        for blk in prog.blocks.values():
+            order = hoisted(blk, lds, reg, group, reads, copies)
+            if order is not None:
+                blk.body[:] = order
+                moved = True
+        if moved:
+            prog.bump()
+            am.invalidate()
+        return moved
 
-    def __init__(self, group=True, reads=False, copies=True):
-        self.group = group
-        self.reads = reads
-        self.copies = copies
-
-    def run(self, prog, am):
-        def apply(*, copies, reads):
-            lds, reg = am.get(SchedulingFrameHazards(), prog), am.get(RegHazards(), prog)
-            moved = False
-            for blk in prog.blocks.values():
-                order = hoisted(blk, lds, reg, self.group, reads, copies)
-                if order is not None:
-                    blk.body[:] = order
-                    moved = True
-            if moved:
-                prog.bump()
-                am.invalidate()
-            return moved
-
-        # A hoisted read shortens the non-read run before a RAW fence, which is what the old
-        # whole-program revert measured and refused -- on every kernel, so the read arm never
-        # shipped. The fence is StinkyTofu's to place now (`_raw_fence_profile` says so), and it
-        # places it from the frame contract, not from how much work precedes the consumer.
-        if self.reads:
-            apply(copies=False, reads=True)
-        if self.copies:
-            apply(copies=True, reads=False)
+    # A hoisted read shortens the non-read run before a RAW fence, which is what the old
+    # whole-program revert measured and refused -- on every kernel, so the read arm never
+    # shipped. The fence is StinkyTofu's to place now (`_raw_fence_profile` says so), and it
+    # places it from the frame contract, not from how much work precedes the consumer.
+    if reads:
+        apply(copies=False, reads=True)
+    if copies:
+        apply(copies=True, reads=False)
