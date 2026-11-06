@@ -1,7 +1,7 @@
 # Copyright Advanced Micro Devices, Inc., or its affiliates.
 # SPDX-License-Identifier: MIT
 """
-ScaffoldMapPass (the LoopIR->TensileLite-scaffold mapping) -- the ONE place that maps the GENERIC,
+`scaffold_map` (the LoopIR->TensileLite-scaffold mapping) -- the ONE place that maps the GENERIC,
 backend-agnostic control flow (the peel-validity guard, the steady back-edge, the drain chain) onto
 TensileLite's favored scaffold LABELS (`toPGR1`, `LoopEndL`, `NoGlobalLoadLoop_k`).
 """
@@ -13,7 +13,6 @@ from dataclasses import replace
 from ..nodes import CondGoto, CondChain, LoopBack, LoopCopy
 from .early_exit import _drain_chain
 from ..analyses.cfg import BackEdges
-from .base import Pass
 
 
 # generic CFG-role -> TensileLite scaffold label.  ONE table; no per-kernel literal, no name test.
@@ -94,10 +93,9 @@ def _label_guard_arms(prog, back_headers):
     return changed
 
 
-class ScaffoldMapPass(Pass):
+def scaffold_map(prog, am):
     """Label each guard arm with the name TensileLite's scaffold already uses for it."""
-    def run(self, prog, am):
-        back = am.get(BackEdges(), prog)
-        back_headers = {be.src for be in back}          # blocks whose terminator is the back-edge
-        if _label_guard_arms(prog, back_headers):
-            prog.bump()
+    back = am.get(BackEdges(), prog)
+    back_headers = {be.src for be in back}          # blocks whose terminator is the back-edge
+    if _label_guard_arms(prog, back_headers):
+        prog.bump()

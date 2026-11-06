@@ -181,9 +181,9 @@ def inst_line(inst):
 
 def _pred_str(p):
     """A terminator predicate WITH its scaffold hint.  `Pred.label` is attached downstream by
-    ScaffoldMapPass and is the whole reason a consumer can route an arm to the right scaffold
+    `scaffold_map` and is the whole reason a consumer can route an arm to the right scaffold
     region -- a dump that omits it makes every terminator look label-free and unroutable, which is
-    indistinguishable from ScaffoldMapPass not having run.
+    indistinguishable from `scaffold_map` not having run.
     """
     return f"{p.render()!r}" + (f" [{p.label}]" if p.label else "")
 

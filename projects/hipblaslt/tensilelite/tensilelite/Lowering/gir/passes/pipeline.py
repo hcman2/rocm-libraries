@@ -17,7 +17,7 @@ from .stages import stage_groups
 def pipeline():
     """The backend pass order.
 
-    ScaffoldShapePass is the ONLY stage allowed to change the CFG: it merges the correct short-arm
+    The cfg stage is the ONLY stage allowed to change the CFG: it merges the correct short-arm
     register order into the prologue/drain shape, proves equivalence, adds early-exit edges, and
     labels the terminators.
 

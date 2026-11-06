@@ -308,7 +308,7 @@ class Block(_Sealable):
 
  phase -- 'prologue' | 'steady{n}' | 'drain{n}' | 'short{n}' | 'tail' (also the block LABEL).
  'short{n}' is the `T < M` degenerate arm: present only until
- FoldShortPathPass has ruled, then either folded away or kept as a real second path.
+ `fold_short_path` has ruled, then either folded away or kept as a real second path.
     """
     phase: str
     loop:  bool = False

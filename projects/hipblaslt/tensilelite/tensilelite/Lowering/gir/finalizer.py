@@ -26,13 +26,9 @@ from .passes.hoist_copies import HoistCopiesPass
 from .passes.placement import PlacementPass
 from .passes.apply_marks import ApplyMarksPass
 from .passes.record_unemitted import RecordUnemittedPass
-from .passes.scaffold_shape import ScaffoldShapePass
 from .schedule import finalize
+from .stages.cfg import cfg as _cfg
 from .verify import verify_gir
-
-
-def _cfg(prog, am):
-    ScaffoldShapePass().run(prog, am)
 
 
 def _phi(prog, am):

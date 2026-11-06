@@ -8,13 +8,20 @@ stages and can compare each prefix with the flat path.
 
 from __future__ import annotations
 
-from .scaffold_shape import ScaffoldShapePass
+from ..stages.cfg import cfg
 from .entrance_frames import EntranceFramePhisPass
 from .hoist_copies import HoistCopiesPass
 from .collect_pending import CollectPendingMarksPass
 from .placement import PlacementPass
 from .apply_marks import ApplyMarksPass
 from .record_unemitted import RecordUnemittedPass
+
+
+class _Stage:
+    """A finalizer stage function in the pass list shape."""
+
+    def __init__(self, fn):
+        self.run = fn
 
 
 def stage_groups():
@@ -25,7 +32,7 @@ def stage_groups():
     `mark_placement` collects, places and applies the semantic marks.
     """
     return (
-        ("cfg", (ScaffoldShapePass(),)),
+        ("cfg", (_Stage(cfg),)),
         ("phi", (EntranceFramePhisPass(),)),
         ("copy_hoist", (HoistCopiesPass(reads=True),)),
         ("mark_placement", (
