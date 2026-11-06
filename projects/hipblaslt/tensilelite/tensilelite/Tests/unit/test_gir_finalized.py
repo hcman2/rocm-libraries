@@ -145,14 +145,43 @@ def test_published_schedule_matches_the_separate_derivations():
         raise AssertionError("published generations accepted an assignment")
 
 
-def test_each_stage_matches_the_flat_pipeline():
-    from tensilelite.Lowering.gir.finalizer import compare_stage_path
+def _schedule_facts(schedule):
+    contract = schedule.contract
+    return (
+        schedule.gir_text,
+        [(phase, [(a.action_id, str(a.kind), dict(a.at)) for a in actions])
+         for phase, actions in schedule.plans.items()],
+        dict(schedule.lines),
+        sorted(contract.generations.values(), key=lambda g: g.id),
+        sorted(contract.actions.values(), key=lambda a: a.id),
+        contract.accesses, contract.edges, contract.requires,
+    )
 
-    def make():
-        decoded = decode_theta(theta(dict(BF16_NT_KMN)))
-        return lower_to_gir(decoded.program, decoded.profile)
 
-    assert compare_stage_path(make)
+DIFFERENTIAL_CASES = (
+    dict(BF16_NT_KMN),
+    dict(BF16_NT_KMN, LoopOrder="NMK"),
+    dict(BF16_NT_KMN, LoopOrder="MKN", PrefetchGlobalRead=1),
+    dict(BF16_NT_KMN, PrefetchGlobalRead=3),
+    dict(BF16_NT_KMN, PrefetchLocalRead=2),
+)
+
+
+def test_direct_finalizer_matches_lowering_plus_pipeline():
+    """finalize_loop_schedule(LoopIR) against the old lower_to_gir + run_pipeline path."""
+    from tensilelite.Lowering.gir.finalizer import finalize_loop_schedule
+    from tensilelite.Lowering.gir.passes import pipeline, run_pipeline
+
+    for params in DIFFERENTIAL_CASES:
+        old_decoded = decode_theta(theta(dict(params)))
+        old = lower_to_gir(old_decoded.program, old_decoded.profile)
+        run_pipeline(old, passes=pipeline())
+        expected = finalize(old, with_text=True)
+
+        new_decoded = decode_theta(theta(dict(params)))
+        actual = finalize_loop_schedule(new_decoded.program, new_decoded.profile,
+                                        with_text=True)
+        assert _schedule_facts(actual) == _schedule_facts(expected), params
 
 
 def test_run_pipeline_freezes_the_program():

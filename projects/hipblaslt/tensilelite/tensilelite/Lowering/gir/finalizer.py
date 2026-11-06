@@ -2,48 +2,115 @@
 # SPDX-License-Identifier: MIT
 """LoopIR to a FinalizedSchedule.
 
-The mutable Program and its passes are the builder. This module runs that
-builder and publishes one schedule. The rocisa adapter and the frame-contract
-installer read the schedule; they no longer plan the program a second time.
+``finalize_loop_schedule`` lowers LoopIR into a working Program, runs the fixed
+stage sequence on it, verifies, freezes and publishes the schedule. The
+working Program never leaves this module mutable.
 
-The old ``run_pipeline`` entry stays as the compatibility wrapper the builder
-uses. It is not a second lowering.
+Stages, in order:
+
+* ``cfg``: fold the short arm, add early exits, split the prefetch guard and
+  label the terminators. The only stage that changes the CFG.
+* ``phi``: make every loop-entry frame an explicit phi input.
+* ``copy_hoist``: move copies and reads to their hazard-legal slots.
+* ``manual``: optional GIRScheduleDumpPath/LoadPath hook.
+* ``mark_placement``: collect, place and apply the semantic marks.
+* ``diagnostics``: record what model-only blocks discard.
 """
 
 from __future__ import annotations
 
-from .passes.pipeline import pipeline, run_pipeline
-from .passes.stages import stage_groups
+from .analysis import AnalysisManager
+from .passes.collect_pending import CollectPendingMarksPass
+from .passes.entrance_frames import EntranceFramePhisPass
+from .passes.hoist_copies import HoistCopiesPass
+from .passes.placement import PlacementPass
+from .passes.apply_marks import ApplyMarksPass
+from .passes.record_unemitted import RecordUnemittedPass
+from .passes.scaffold_shape import ScaffoldShapePass
 from .schedule import finalize
+from .verify import verify_gir
 
 
-def finalize_program(prog, passes=None, verify=True):
-    """Run the builder, then publish its schedule. Returns the schedule."""
-    run_pipeline(prog, passes=passes if passes is not None else pipeline(), verify=verify)
-    return finalize(prog)
+def _cfg(prog, am):
+    ScaffoldShapePass().run(prog, am)
 
 
-def compare_stage_path(make_program):
-    """Check each stage prefix against the flat pipeline.
+def _phi(prog, am):
+    EntranceFramePhisPass().run(prog, am)
 
-    ``make_program`` returns a fresh mutable program. Both sides run the same
-    pass classes; a mismatch means the stage list and ``pipeline()`` diverged
-    or the builder is not deterministic.
+
+def _copy_hoist(prog, am):
+    HoistCopiesPass(reads=True).run(prog, am)
+
+
+def _mark_placement(prog, am):
+    for step in (CollectPendingMarksPass(), PlacementPass(), ApplyMarksPass()):
+        _run(step.run, prog, am)
+
+
+def _diagnostics(prog, am):
+    RecordUnemittedPass().run(prog, am)
+
+
+STAGES = (
+    ("cfg", _cfg),
+    ("phi", _phi),
+    ("copy_hoist", _copy_hoist),
+    ("manual", None),
+    ("mark_placement", _mark_placement),
+    ("diagnostics", _diagnostics),
+)
+
+
+def _run(stage, prog, am):
+    before = prog.version
+    stage(prog, am)
+    # Only a mutation drops the analysis cache, and `bump()` is what declares one.
+    if prog.version != before:
+        am.invalidate()
+
+
+def stages(manual=None):
+    """The `(name, stage)` sequence; ``manual`` fills the optional schedule hook."""
+    return tuple((name, manual if name == "manual" else stage)
+                 for name, stage in STAGES
+                 if name != "manual" or manual is not None)
+
+
+def build_program(prog, *, manual=None, verify=True, until=None):
+    """Run the stages on a lowered working ``prog`` and freeze it. Returns ``prog``.
+
+    ``until`` stops after the named stage, for tests that inspect a prefix.
     """
-    from .render import render_gir
+    if prog.frozen:
+        raise RuntimeError("GIR finalizer: the program is already finalized")
+    am = AnalysisManager()
+    for name, stage in stages(manual):
+        _run(stage, prog, am)
+        if name == until:
+            break
+    if verify:
+        verify_gir(prog)
+    return prog.freeze()
 
-    flat = pipeline()
-    staged = [item for _name, group in stage_groups() for item in group]
-    if [type(item) for item in flat] != [type(item) for item in staged]:
-        raise RuntimeError("pipeline() does not follow the stage list")
-    count = 0
-    for name, group in stage_groups():
-        count += len(group)
-        left = make_program()
-        right = make_program()
-        run_pipeline(left, passes=flat[:count], verify=False)
-        run_pipeline(right, passes=staged[:count], verify=False)
-        if render_gir(left) != render_gir(right):
-            raise RuntimeError(
-                "GIR stage %s diverges from the flat pipeline" % name)
-    return True
+
+def finalize_program(prog, *, manual=None, verify=True, with_text=False):
+    """Run the stages on a lowered working ``prog`` and publish its schedule."""
+    return finalize(build_program(prog, manual=manual, verify=verify), with_text=with_text)
+
+
+def finalize_loop_schedule(loopir, profile=None, *, include_dependencies=True, params=None,
+                           meta=None, manual=None, verify=True, with_text=False):
+    """LoopIR -> FinalizedSchedule.
+
+    ``params`` and ``meta`` are target facts the kernel adds to the lowered
+    program before the stages run (for example PrefetchGL2 and the VALU
+    allocation).
+    """
+    from ..loopir_to_gir import lower_to_gir
+
+    prog = lower_to_gir(loopir, profile, include_dependencies=include_dependencies,
+                        verify=False)
+    prog.params.update(params or {})
+    prog.meta.update(meta or {})
+    return finalize_program(prog, manual=manual, verify=verify, with_text=with_text)

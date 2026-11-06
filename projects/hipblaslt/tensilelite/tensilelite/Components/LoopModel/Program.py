@@ -14,7 +14,6 @@ from ...Lowering.loopir_to_gir import lower_to_gir
 from ...Lowering.gir import check_plan
 from ...Lowering.gir.analyses import Gl2PrefetchRegions
 from ...Lowering.gir.finalizer import finalize_program
-from ...Lowering.gir.passes import pipeline as gir_pipeline
 from ...Lowering.gir.passes.manual_schedule import (
     ManualSchedulePass,
     schedule_cache_tag,
@@ -105,22 +104,16 @@ def loopModelGirProgram(writer, kernel):
         }
         # PrefetchGL2 is a target-side GIR placement parameter, not LoopIR.
         prog.params[Gl2PrefetchRegions.PARAM] = kernel["PrefetchGL2"]
-        passes = gir_pipeline()
+        manual = None
         if dump_schedule or load_schedule:
             manual = ManualSchedulePass(
                 key,
                 dump_path=dump_schedule,
                 load_path=load_schedule,
-            )
-            insertion = next(
-                (index for index, item in enumerate(passes)
-                 if item.__class__.__name__ == "CollectPendingMarksPass"),
-                len(passes),
-            )
-            passes.insert(insertion, manual)
+            ).run
         schedule = finalize_program(
             prog,
-            passes=passes,
+            manual=manual,
             verify=verify_ir,
         )
         kinds = {}

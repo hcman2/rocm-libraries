@@ -15,7 +15,7 @@ from types import MappingProxyType
 
 from .emit_plan import plan_program
 from .frame_contract import build_contract
-from .render import inst_line
+from .render import inst_line, render_gir
 from .storage import storage_accesses
 
 
@@ -35,12 +35,14 @@ class FinalizedSchedule:
     action_ids: tuple
     accesses: object
     lines: object
+    #: The GIR dump, when the caller asked for it (OutputLoopIR, tests).
+    gir_text: object = None
 
     def accesses_of(self, action_id):
         return self.accesses.get(action_id, ())
 
 
-def finalize(prog) -> FinalizedSchedule:
+def finalize(prog, with_text=False) -> FinalizedSchedule:
     """Plan a frozen ``prog`` once and attach the immutable snapshot to it."""
     if not prog.frozen:
         raise RuntimeError("GIR finalize: run_pipeline has not finished this program")
@@ -62,6 +64,7 @@ def finalize(prog) -> FinalizedSchedule:
                          for action in actions),
         accesses=accesses,
         lines=lines,
+        gir_text=render_gir(prog) if with_text else None,
     )
     prog.finalized = schedule
     return schedule
