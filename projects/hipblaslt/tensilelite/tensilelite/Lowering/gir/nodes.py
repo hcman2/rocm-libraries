@@ -372,7 +372,7 @@ class Program(_Sealable):
     params:  dict = field(default_factory=dict)
     meta:    dict = field(default_factory=dict)
     version: int = 0
-    pending: list = field(default_factory=list)   # PendingMarks from CollectPendingMarksPass
+    pending: list = field(default_factory=list)   # PendingMarks from the collect_pending step
 
     # The published schedule is cached on the frozen program.
     _open_after_seal = ("finalized",)
@@ -589,11 +589,11 @@ def region_slot(body, anchor, opening):
 class PendingMark:
     """An un-placed Mark: the FACT (a Mark) plus WHERE it may legally go (a Region).
 
-    `anchor` is filled by PlacementPass (a concrete body node or a boundary sentinel); apply
+    `anchor` is filled by place_marks (a concrete body node or a boundary sentinel); apply
     inserts `mark` immediately before `anchor`, or at block entry/exit for a sentinel.
     """
     mark:   object            # a Mark
     region: Region
-    anchor: object = None     # resolved by PlacementPass; None until then
+    anchor: object = None     # resolved by place_marks; None until then
     edges:  tuple = ()        # what this Mark is CHARGED with, for the layer that names it
     options: tuple = ()       # every legal Region, ACROSS BLOCKS; the naming layer picks one

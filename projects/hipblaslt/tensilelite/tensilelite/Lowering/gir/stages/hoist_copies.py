@@ -1,7 +1,7 @@
 # Copyright Advanced Micro Devices, Inc., or its affiliates.
 # SPDX-License-Identifier: MIT
 """
-HoistCopiesPass -- issue each copy at its earliest hazard-legal slot, and each read at the point
+`hoist_copies` -- issue each copy at its earliest hazard-legal slot, and each read at the point
 in the wmma stream its own consumer reaches.
 """
 

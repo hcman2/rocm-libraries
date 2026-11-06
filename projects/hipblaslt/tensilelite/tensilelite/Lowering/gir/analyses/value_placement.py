@@ -38,7 +38,7 @@ class Placement:
     """A def that must happen, and the window it may occupy inside ONE block.
 
     `after`/`before` are opaque anchors (a body node, or BLOCK_ENTRY / BLOCK_EXIT).  Choosing the
-    point inside the window is POLICY and belongs to PlacementPass, not here.
+    point inside the window is POLICY and belongs to place_marks, not here.
     """
     block:      str
     after:      object

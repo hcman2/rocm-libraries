@@ -11,10 +11,8 @@ from __future__ import annotations
 from ..stages.cfg import cfg
 from ..stages.entrance_frames import entrance_frames
 from ..stages.hoist_copies import hoist_copies
-from .collect_pending import CollectPendingMarksPass
-from .placement import PlacementPass
-from .apply_marks import ApplyMarksPass
-from .record_unemitted import RecordUnemittedPass
+from ..stages.diagnostics import record_unemitted
+from ..stages.marks import apply_marks, collect_pending, place_marks
 
 
 class _Stage:
@@ -36,9 +34,9 @@ def stage_groups():
         ("phi", (_Stage(entrance_frames),)),
         ("copy_hoist", (_Stage(hoist_copies),)),
         ("mark_placement", (
-            CollectPendingMarksPass(),
-            PlacementPass(),
-            ApplyMarksPass(),
-            RecordUnemittedPass(),
+            _Stage(collect_pending),
+            _Stage(place_marks),
+            _Stage(apply_marks),
+            _Stage(record_unemitted),
         )),
     )

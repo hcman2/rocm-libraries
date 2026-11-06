@@ -14,10 +14,7 @@ from ...Lowering.loopir_to_gir import lower_to_gir
 from ...Lowering.gir import check_plan
 from ...Lowering.gir.analyses import Gl2PrefetchRegions
 from ...Lowering.gir.finalizer import finalize_program
-from ...Lowering.gir.passes.manual_schedule import (
-    ManualSchedulePass,
-    schedule_cache_tag,
-)
+from ...Lowering.gir.stages.manual_schedule import manual_schedule, schedule_cache_tag
 
 from .Theta import loopModelTheta, namingSolution
 
@@ -106,11 +103,11 @@ def loopModelGirProgram(writer, kernel):
         prog.params[Gl2PrefetchRegions.PARAM] = kernel["PrefetchGL2"]
         manual = None
         if dump_schedule or load_schedule:
-            manual = ManualSchedulePass(
+            manual = manual_schedule(
                 key,
                 dump_path=dump_schedule,
                 load_path=load_schedule,
-            ).run
+            )
         schedule = finalize_program(
             prog,
             manual=manual,

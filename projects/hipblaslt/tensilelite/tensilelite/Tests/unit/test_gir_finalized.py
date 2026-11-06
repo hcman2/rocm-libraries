@@ -225,3 +225,49 @@ def test_access_declarations_match_what_actions_touch():
     touched = {action.kind for actions in schedule.plans.values() for action in actions
                if schedule.accesses_of(action.action_id)}
     assert {EmitKind.DS_LOAD, EmitKind.TENSOR_LOAD} <= touched
+
+
+def test_manual_schedule_round_trips_and_rejects_a_foreign_format(tmp_path):
+    import pytest
+    import yaml
+    from tensilelite.Lowering.gir.finalizer import finalize_loop_schedule
+    from tensilelite.Lowering.gir.stages.manual_schedule import (
+        FORMAT, manual_schedule, schedule_file)
+
+    def build(**paths):
+        decoded = decode_theta(theta(dict(BF16_NT_KMN)))
+        return finalize_loop_schedule(decoded.program, decoded.profile, with_text=True,
+                                      manual=manual_schedule("K", **paths))
+
+    dumped = build(dump_path=tmp_path)
+    path = schedule_file(tmp_path, "K")
+    document = yaml.safe_load(path.read_text())
+    assert document["format"] == FORMAT
+    assert build(load_path=tmp_path).gir_text == dumped.gir_text
+
+    path.write_text(path.read_text().replace(FORMAT, "tensilelite-gir-schedule-v0"))
+    with pytest.raises(RuntimeError, match="expected %r" % FORMAT):
+        build(load_path=tmp_path)
+
+
+def test_manual_schedule_round_trips_and_rejects_a_foreign_format(tmp_path):
+    import pytest
+    import yaml
+    from tensilelite.Lowering.gir.finalizer import finalize_loop_schedule
+    from tensilelite.Lowering.gir.stages.manual_schedule import (
+        FORMAT, manual_schedule, schedule_file)
+
+    def build(**paths):
+        decoded = decode_theta(theta(dict(BF16_NT_KMN)))
+        return finalize_loop_schedule(decoded.program, decoded.profile, with_text=True,
+                                      manual=manual_schedule("K", **paths))
+
+    dumped = build(dump_path=tmp_path)
+    path = schedule_file(tmp_path, "K")
+    document = yaml.safe_load(path.read_text())
+    assert document["format"] == FORMAT
+    assert build(load_path=tmp_path).gir_text == dumped.gir_text
+
+    path.write_text(path.read_text().replace(FORMAT, "tensilelite-gir-schedule-v0"))
+    with pytest.raises(RuntimeError, match="expected %r" % FORMAT):
+        build(load_path=tmp_path)

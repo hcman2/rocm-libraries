@@ -20,24 +20,13 @@ Stages, in order:
 from __future__ import annotations
 
 from .analysis import AnalysisManager
-from .passes.collect_pending import CollectPendingMarksPass
-from .passes.placement import PlacementPass
-from .passes.apply_marks import ApplyMarksPass
-from .passes.record_unemitted import RecordUnemittedPass
 from .schedule import finalize
 from .stages.cfg import cfg as _cfg
+from .stages.diagnostics import record_unemitted as _diagnostics
 from .stages.entrance_frames import entrance_frames as _phi
 from .stages.hoist_copies import hoist_copies as _copy_hoist
+from .stages.marks import mark_placement as _mark_placement
 from .verify import verify_gir
-
-
-def _mark_placement(prog, am):
-    for step in (CollectPendingMarksPass(), PlacementPass(), ApplyMarksPass()):
-        _run(step.run, prog, am)
-
-
-def _diagnostics(prog, am):
-    RecordUnemittedPass().run(prog, am)
 
 
 STAGES = (

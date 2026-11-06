@@ -814,7 +814,7 @@ def test_intra_block_change_yields_a_window_between_the_two_accesses():
                                   lambda x, y: 0, "steady", 0, modulus=2).solve(_raise)
     inner = [pl for pl in places if not pl.at_exit and pl.after is a]
     assert len(inner) == 1, places
-    # the WINDOW is both accesses; picking a point inside it is PlacementPass's policy, not ours.
+    # the WINDOW is both accesses; picking a point inside it is place_marks's policy, not ours.
     assert inner[0].before is b and (inner[0].from_value, inner[0].to_value) == (0, 1)
 
 

@@ -16,7 +16,6 @@ import yaml
 from ....Common.Utilities import print1
 from ..nodes import Mark, Mma, Move  # noqa: F401 -- kept for the Mark guard below
 from ..render import inst_line
-from .base import Pass
 
 
 FORMAT = "tensilelite-gir-schedule-v1"
@@ -96,25 +95,23 @@ def _read_schedule(path):
     return document
 
 
-class ManualSchedulePass(Pass):
-    """Dump or apply one compact, ordinal-based schedule per kernel."""
+def manual_schedule(kernel_name, *, dump_path="", load_path=""):
+    """The manual stage: dump or apply one compact, ordinal-based schedule per kernel."""
+    if dump_path and load_path:
+        raise ValueError("GIR schedule dump and load modes are mutually exclusive")
+    kernel_name = str(kernel_name)
+    dump_path = str(dump_path or "")
+    load_path = str(load_path or "")
 
-    def __init__(self, kernel_name, *, dump_path="", load_path=""):
-        if dump_path and load_path:
-            raise ValueError("GIR schedule dump and load modes are mutually exclusive")
-        self.kernel_name = str(kernel_name)
-        self.dump_path = str(dump_path or "")
-        self.load_path = str(load_path or "")
-
-    def run(self, prog, am):
-        if self.dump_path:
-            path = schedule_file(self.dump_path, self.kernel_name)
-            _write_atomic(path, _dump_text(prog, self.kernel_name))
+    def stage(prog, am):
+        if dump_path:
+            path = schedule_file(dump_path, kernel_name)
+            _write_atomic(path, _dump_text(prog, kernel_name))
             return
-        if not self.load_path:
+        if not load_path:
             return
 
-        path = schedule_file(self.load_path, self.kernel_name)
+        path = schedule_file(load_path, kernel_name)
         if not path.is_file():
             return                              # a directory may override only selected kernels
         document = _read_schedule(path)
@@ -122,10 +119,10 @@ class ManualSchedulePass(Pass):
             raise RuntimeError(
                 "GIR schedule %s has format %r, expected %r"
                 % (path, document.get("format"), FORMAT))
-        if document.get("kernel") != self.kernel_name:
+        if document.get("kernel") != kernel_name:
             raise RuntimeError(
                 "GIR schedule %s names a different kernel\n  file:     %s\n  expected: %s"
-                % (path, document.get("kernel"), self.kernel_name))
+                % (path, document.get("kernel"), kernel_name))
         actual_fingerprint = _fingerprint(prog)
         if document.get("fingerprint") != actual_fingerprint:
             raise RuntimeError(
@@ -162,3 +159,5 @@ class ManualSchedulePass(Pass):
         if changed:
             prog.bump()
         print1("%s loaded" % path)
+
+    return stage
