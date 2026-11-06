@@ -84,11 +84,11 @@ class FrameHazardSet:
             out = [h for h in out if h.cross_agent == cross_agent]
         return tuple(out)
 
-    def needing_fence(self):
-        """The edges a proc-scoped fence must cover -- the cross-wave ones.
+    def cross_agent(self):
+        """The cross-wave edges.
 
-        A same-wave edge is discharged by program order plus the completion counter, so fencing it
-        would be pure cost.  This is the ONLY place the fence/no-fence decision is made."""
+        The verifier compares these with theta's block-scoped residencies. Whether an edge gets a
+        fence, barrier or wait is StinkyTofu's decision; nothing here chooses one."""
         return self.edges(cross_agent=True)
 
 
@@ -274,6 +274,10 @@ class FrameHazards(_FrameHazards):
 
 
 class SchedulingFrameHazards(_FrameHazards):
-    """Exact representative-agent address hazards used only to constrain scheduling."""
+    """Exact representative-agent address hazards.
+
+    HoistCopiesPass reads them to decide whether a copy may move earlier in a block body. They
+    order actions; they do not produce a barrier, wait or fence.
+    """
 
     scheduling = True

@@ -6,6 +6,7 @@ gir_to_rocisa -- the layer 2 -> 3 lowering, the THIN rocisa adapter.
 
 from __future__ import annotations
 
+from rocisa import GirFrameContract
 from rocisa.code import Module
 
 from .gir.analysis import AnalysisManager
@@ -42,6 +43,25 @@ def _register_depth(prog, band=None):
     for (op, _group), w in items.items():
         per_op[op] = max(per_op.get(op, 1), int(w))
     return per_op
+
+
+def install_frame_contract(schedule, st_module):
+    """Hand a schedule's frame contract to StinkyTofu as a struct.
+
+    Only what belongs to no instruction travels: the generation table, the phi edges and the guard
+    constraints. Actions and the storage they touch ride on the instructions as GirActionData.
+    """
+    contract = schedule.contract
+    out = GirFrameContract()
+    for generation in sorted(contract.generations.values(), key=lambda g: g.id):
+        out.addGeneration(id=generation.id, ring=generation.ring, entry=generation.entry)
+    for edge in contract.edges:
+        out.addIncoming(dst=edge.dst, src=edge.src, gen=edge.gen, value=edge.value,
+                        relative=edge.relative)
+    for need in contract.requires:
+        out.addRequires(dst=need.dst, src=need.src, gen=need.gen, values=list(need.values))
+    st_module.setGirFrameContract(out)
+    return contract
 
 
 class GirToRocisa:

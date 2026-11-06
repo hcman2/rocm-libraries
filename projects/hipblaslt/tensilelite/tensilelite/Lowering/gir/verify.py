@@ -350,7 +350,7 @@ def check_block_scope_covered(prog, am):
     """
     hz = am.get(FrameHazards(), prog)
     cross_operands = set()
-    for h in hz.needing_fence():
+    for h in hz.cross_agent():
         cross_operands.add(h.producer.operand)
         cross_operands.add(h.consumer.operand)
     claimed = {}

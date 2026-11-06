@@ -380,25 +380,3 @@ def build_contract(prog, plans=None, accesses=None) -> Contract:
         requires=tuple(requires),
     )
 
-
-def install_frame_contract(prog, st_module):
-    """Hand the contract to StinkyTofu as a STRUCT -- the one call the kernel writer makes.
-
-    Only what belongs to no instruction travels: the generation table, the phi edges and the guard
-    constraints.  Actions and the storage they touch ride on the instructions, and nothing is
-    encoded, so there is no text format for a writer and a reader to disagree about.
-    """
-    from rocisa import GirFrameContract
-    from .schedule import published_schedule
-
-    contract = published_schedule(prog).contract
-    out = GirFrameContract()
-    for generation in sorted(contract.generations.values(), key=lambda g: g.id):
-        out.addGeneration(id=generation.id, ring=generation.ring, entry=generation.entry)
-    for edge in contract.edges:
-        out.addIncoming(dst=edge.dst, src=edge.src, gen=edge.gen, value=edge.value,
-                        relative=edge.relative)
-    for need in contract.requires:
-        out.addRequires(dst=need.dst, src=need.src, gen=need.gen, values=list(need.values))
-    st_module.setGirFrameContract(out)
-    return contract

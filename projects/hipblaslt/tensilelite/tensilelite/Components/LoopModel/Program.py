@@ -13,7 +13,6 @@ from ...Lowering import gir_text
 from ...Lowering.loopir_to_gir import lower_to_gir
 from ...Lowering.gir import check_plan
 from ...Lowering.gir.analyses import Gl2PrefetchRegions
-from ...Lowering.gir.frame_contract import install_frame_contract
 from ...Lowering.gir.finalizer import finalize_program
 from ...Lowering.gir.passes import pipeline as gir_pipeline
 from ...Lowering.gir.passes.manual_schedule import (
@@ -211,4 +210,6 @@ def loopModelGirTextCached(writer):
 
 def attachFrameContract(writer, stModule, kernel):
     """Attach this kernel's frame contract to the StinkyTofu module."""
-    install_frame_contract(loopModelGirProgram(writer, kernel), stModule)
+    from ...Lowering.gir_to_rocisa import install_frame_contract
+
+    install_frame_contract(loopModelFinalizedSchedule(writer, kernel), stModule)

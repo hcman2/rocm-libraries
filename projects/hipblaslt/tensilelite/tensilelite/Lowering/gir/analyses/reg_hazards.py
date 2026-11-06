@@ -2,6 +2,9 @@
 # SPDX-License-Identifier: MIT
 """
 RegHazards -- the VGPR rotation hazard edges, the register-side twin of FrameHazards.
+
+HoistCopiesPass reads them to keep a hoisted copy behind the register reads it must follow.
+They order actions; they do not produce a barrier, wait or fence.
 """
 
 from __future__ import annotations
