@@ -77,3 +77,22 @@ def test_hazard_analyses_only_verify_or_order_actions():
 def test_frame_contract_carries_state_not_synchronization_policy():
     assert {f.name for f in dataclasses.fields(Contract)} == {
         "generations", "actions", "accesses", "edges", "requires"}
+
+
+#: The mutable builder: only the finalizer and GIR's own tooling may reach it.
+BUILDER = ("Lowering.loopir_to_gir", "gir.nodes", "gir.analysis", "gir.stages",
+           "gir.finalizer.build_program", "gir.finalizer.finalize_program")
+
+
+def test_kernel_writers_read_only_the_finalized_schedule():
+    consumers = [PACKAGE_ROOT / name for name in (
+        "KernelWriter.py", "KernelWriterAssembly.py", "TensileCreateLibrary/Run.py",
+        "Components/LoopModel/Emit.py", "Lowering/gir_to_rocisa.py")]
+    offenders = {str(path.relative_to(PACKAGE_ROOT)): _hits(_imports(path), BUILDER)
+                 for path in consumers}
+    assert {name: hits for name, hits in offenders.items() if hits} == {}
+
+    program = _hits(_imports(PACKAGE_ROOT / "Components/LoopModel/Program.py"), BUILDER)
+    assert program == ["tensilelite.Lowering.gir.stages.manual_schedule",
+                       "tensilelite.Lowering.gir.stages.manual_schedule.manual_schedule",
+                       "tensilelite.Lowering.gir.stages.manual_schedule.schedule_cache_tag"]

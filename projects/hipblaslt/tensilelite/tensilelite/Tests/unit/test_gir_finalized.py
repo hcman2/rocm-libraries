@@ -247,3 +247,19 @@ def test_manual_schedule_round_trips_and_rejects_a_foreign_format(tmp_path):
     path.write_text(path.read_text().replace(FORMAT, "tensilelite-gir-schedule-v0"))
     with pytest.raises(RuntimeError, match="expected %r" % FORMAT):
         build(load_path=tmp_path)
+
+
+def test_schedule_states_its_schema_and_target_facts():
+    from tensilelite.Lowering.gir.schedule import SCHEDULE_VERSION
+
+    schedule = finalize(build_gir(theta(dict(BF16_NT_KMN))))
+    assert schedule.schema == SCHEDULE_VERSION
+    facts = schedule.target
+    assert facts.steady_chain and facts.steady_chain[0] == "steady"
+    assert facts.peel_depth >= 1
+    try:
+        facts.register_layout["A"] = {}
+    except TypeError:
+        pass
+    else:
+        raise AssertionError("register_layout accepted an item assignment")

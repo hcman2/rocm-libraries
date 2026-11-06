@@ -19,10 +19,8 @@ from .registry import FILL_OPS, payload_for  # noqa: F401  FILL_OPS is re-export
 class _Sealable:
     """Refuses attribute writes once `Program.freeze` has run."""
 
-    _open_after_seal = ()
-
     def __setattr__(self, name, value):
-        if self.__dict__.get("_sealed") and name not in self._open_after_seal:
+        if self.__dict__.get("_sealed"):
             raise AttributeError(
                 "GIR %s is finalized; %r cannot change after the finalizer"
                 % (type(self).__name__, name))
@@ -373,9 +371,6 @@ class Program(_Sealable):
     meta:    dict = field(default_factory=dict)
     version: int = 0
     pending: list = field(default_factory=list)   # PendingMarks from the collect_pending step
-
-    # The published schedule is cached on the frozen program.
-    _open_after_seal = ("finalized",)
 
     @property
     def frozen(self) -> bool:

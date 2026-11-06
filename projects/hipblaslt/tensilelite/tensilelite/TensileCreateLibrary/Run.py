@@ -389,6 +389,18 @@ def _verify_stinky_asm_comment_vs_elf_text(s_path: Path, o_path: Path, kernel_ba
             )
 
 
+_girDumpWarned = False
+
+
+def _warnGirDumpDeprecated():
+    """The .gir dump is deprecated; OutputLoopIR's LoopIR .txt dump stays."""
+    global _girDumpWarned
+    if not _girDumpWarned:
+        _girDumpWarned = True
+        printWarning("OutputLoopIR: the .gir GIR dump is deprecated and will be removed; "
+                     "the LoopIR .txt dump and GIRScheduleDumpPath remain.")
+
+
 def memCompress(obj):
     return zlib.compress(pickle.dumps(obj))
 
@@ -858,6 +870,7 @@ def writeAssembly(asmPath: Union[Path, str], result: KernelCodeGenResult, irPath
     # ...and the finalized GIR + emit plan as a sibling .gir, so a defect can be localized to a
     # layer by diffing the two dumps against the .s (LoopIR decided / GIR carried / L3 emitted).
     if irPath is not None and result.gir is not None:
+        _warnGirDumpDeprecated()
         try:
             girFile = Path(irPath) / f"{result.name}.gir"
             with open(girFile, "w", encoding="utf-8") as f:

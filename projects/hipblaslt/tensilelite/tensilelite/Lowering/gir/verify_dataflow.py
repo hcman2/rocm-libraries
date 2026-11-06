@@ -290,36 +290,6 @@ def check_source_coverage(prog, phase="steady", acts=None) -> list:
     return viol
 
 
-def check_address_keys(prog, packed, phase="steady", acts=None, force_within=False) -> list:
-    """The ADDRESS-level check, which needs one geometry fact the plan does not carry.
-
-    `check_source_coverage` proves the reads name distinct SOURCE coordinates.  That is not the
-    same as distinct ADDRESSES.  The leaf builds an address from TWO coupled choices.
-    
-    """
-    viol, keys = [], {}
-    for act in (plan_block(prog, phase) if acts is None else acts):
-        if act.kind not in FILL_OPS:
-            continue
-        at = act.at
-        op = at["tc"]
-        p = bool(packed(op))
-        within = p or force_within
-        key = (at.get("region", 0) if p else 0,
-               at["tile"] if within else at.get("tile_flat", at["tile"]),
-               at["k"] if within else at.get("k_flat", at["k"]))
-        src = (at.get("tile_flat", at["tile"]), at.get("k_flat", at["k"]))
-        prev = keys.setdefault((op, key), src)
-        if prev != src:
-            viol.append(
-                "%s: operand %s reads sources %s and %s at the SAME address key %s -- one reads "
-                "the other's bytes.  regions are %s, so the address is built from %s."
-                % (phase, op, prev, src, key,
-                   "PACKED" if p else "CONTIGUOUS",
-                   "region + within-region coords" if p else "flat coords"))
-    return viol
-
-
 def check_refill_splits_consumers(prog, phase="steady", acts=None) -> list:
     """A HOISTED refill must not split consumers of the SAME logical value.
 

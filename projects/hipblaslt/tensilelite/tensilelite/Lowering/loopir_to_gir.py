@@ -58,7 +58,6 @@ from .gir.nodes import (
     covered_coords,
 )
 from .gir.kinds import MarkKind
-from .gir.render import gir_dump, render_gir
 from .gir.schedule import steady_chain
 
 
@@ -1897,9 +1896,4 @@ def lower_to_gir(
     return gir
 
 
-def gir_text(program) -> str:
-    """Render an already-built GIR Program for diagnostics."""
-    return gir_dump(program)
-
-
-__all__ = ["gir_text", "lower_to_gir", "steady_chain"]
+__all__ = ["lower_to_gir", "steady_chain"]

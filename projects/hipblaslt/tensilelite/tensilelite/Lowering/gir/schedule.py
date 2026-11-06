@@ -135,7 +135,7 @@ class FinalizedSchedule:
 
 
 def finalize(prog, with_text=False, check=False) -> FinalizedSchedule:
-    """Plan a frozen ``prog`` once and attach the immutable snapshot to it."""
+    """Plan a frozen ``prog`` once and return its immutable snapshot."""
     if not prog.frozen:
         raise RuntimeError("GIR finalize: the finalizer has not finished this program")
     plans = plan_program(prog)
@@ -148,7 +148,7 @@ def finalize(prog, with_text=False, check=False) -> FinalizedSchedule:
     published = MappingProxyType({
         phase: tuple(replace(action, source=None) for action in actions)
         for phase, actions in plans.items()})
-    schedule = FinalizedSchedule(
+    return FinalizedSchedule(
         version=prog.version,
         plans=published,
         contract=contract,
@@ -161,13 +161,3 @@ def finalize(prog, with_text=False, check=False) -> FinalizedSchedule:
         violations=tuple(check_plan(prog)) if check else (),
         gir_text=gir_dump(prog) if with_text else None,
     )
-    prog.finalized = schedule
-    return schedule
-
-
-def published_schedule(prog) -> FinalizedSchedule:
-    """The schedule of a frozen program, built on the first request."""
-    schedule = getattr(prog, "finalized", None)
-    if schedule is not None and schedule.version == prog.version:
-        return schedule
-    return finalize(prog)
