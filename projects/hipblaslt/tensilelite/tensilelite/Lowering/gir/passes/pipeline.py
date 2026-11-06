@@ -11,13 +11,7 @@ from __future__ import annotations
 
 from ..analysis import AnalysisManager
 from ..verify import verify_gir
-from .scaffold_shape import ScaffoldShapePass
-from .entrance_frames import EntranceFramePhisPass
-from .hoist_copies import HoistCopiesPass
-from .collect_pending import CollectPendingMarksPass
-from .placement import PlacementPass
-from .apply_marks import ApplyMarksPass
-from .record_unemitted import RecordUnemittedPass
+from .stages import stage_groups
 
 
 def pipeline():
@@ -30,15 +24,7 @@ def pipeline():
     Fences, memory tokens and wait counts are all StinkyTofu's, derived after scheduling from the
     frame contract this pipeline exports; GIR states the dataflow and stops there.
     """
-    return [
-        ScaffoldShapePass(),
-        EntranceFramePhisPass(),
-        HoistCopiesPass(reads=True),
-        CollectPendingMarksPass(),
-        PlacementPass(),
-        ApplyMarksPass(),
-        RecordUnemittedPass(),
-    ]
+    return [item for _name, group in stage_groups() for item in group]
 
 
 def run_pipeline(prog, passes=None, verify=True):
