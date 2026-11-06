@@ -25,7 +25,26 @@ def test_kinds_render_as_the_same_strings():
     mark = Mark("swap", {"hop": "ds_load", "gen_from": 0, "gen_to": 1,
                          "operand": "A", "steps": 1})
     assert mark.kind is MarkKind.SWAP
-    assert isinstance(mark.at, dict)
+    assert not isinstance(mark.at, dict)
+    assert mark.at["hop"] == "ds_load"
+    assert f"{MoveOp.DS_LOAD:11s}" == "ds_load    "
+    assert hash(MoveOp.DS_LOAD) == hash("ds_load")
+    assert {"ds_load": 1}[MoveOp.DS_LOAD] == 1
+    try:
+        mark.at["hop"] = "tensor_load"
+    except TypeError:
+        pass
+    else:
+        raise AssertionError("a payload accepted an item assignment")
+    nested = Mark("region_increment", {
+        "unit": ("A",), "steps": 1, "from_region": 0, "to_region": 1,
+        "axis_steps": {"k": 1}})
+    try:
+        nested.at["axis_steps"]["k"] = 2
+    except TypeError:
+        pass
+    else:
+        raise AssertionError("a nested payload dict accepted an item assignment")
     assert inst_line(mark) == (
         "mark swap {'hop': 'ds_load', 'gen_from': 0, 'gen_to': 1, "
         "'operand': 'A', 'steps': 1}")
@@ -65,6 +84,22 @@ def test_published_schedule_matches_the_separate_derivations():
     assert schedule.contract.edges == separate_contract.edges
     assert schedule.contract.requires == separate_contract.requires
     assert schedule.version == program.version
+    assert not hasattr(schedule, "program")
+    assert isinstance(schedule.plans["prologue"], tuple)
+    assert isinstance(schedule.contract.accesses, tuple)
+    assert isinstance(schedule.contract.edges, tuple)
+    try:
+        schedule.plans["prologue"] = ()
+    except TypeError:
+        pass
+    else:
+        raise AssertionError("published plans accepted a replacement")
+    try:
+        schedule.contract.generations[0] = None
+    except TypeError:
+        pass
+    else:
+        raise AssertionError("published generations accepted an assignment")
 
 
 def test_each_stage_matches_the_flat_pipeline():

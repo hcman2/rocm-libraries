@@ -9,7 +9,28 @@ typed kind does not change rendered text.
 
 from __future__ import annotations
 
-from enum import StrEnum
+from collections.abc import Mapping
+from dataclasses import dataclass
+from enum import Enum
+
+
+class StrEnum(str, Enum):
+    """``str`` enum for Python 3.10.
+
+    ``enum.StrEnum`` arrived in 3.11. Members still compare, hash, and format
+    as their value, which is the spelling the dump and the assembly comments use.
+    """
+
+    def __new__(cls, value):
+        member = str.__new__(cls, value)
+        member._value_ = value
+        return member
+
+    def __str__(self):
+        return str.__str__(self)
+
+    def __format__(self, format_spec):
+        return str.__format__(self, format_spec)
 
 
 class MoveOp(StrEnum):
@@ -68,32 +89,59 @@ def coerce_emit(kind):
     return _coerce(EmitKind, kind)
 
 
-class Payload(dict):
-    """A kind's payload.
+def _freeze(value):
+    """A value that cannot be edited after the payload is built.
 
-    It is a ``dict`` so existing ``isinstance(..., dict)`` checks, key order and
-    ``repr`` stay exactly the dump's. Subclasses add typed attribute access for
-    the fields that kind owns; they do not reorder or drop keys.
+    Dicts become frozen payloads whose ``repr`` is still the dict spelling.
+    Lists become tuples. Tuples are copied so a later edit of the original
+    does not show through.
+    """
+    if isinstance(value, Payload):
+        return value
+    if isinstance(value, dict):
+        return Payload(tuple((key, _freeze(item)) for key, item in value.items()))
+    if isinstance(value, list):
+        return tuple(_freeze(item) for item in value)
+    if isinstance(value, tuple):
+        return tuple(_freeze(item) for item in value)
+    return value
+
+
+@dataclass(frozen=True)
+class Payload(Mapping):
+    """Read-only payload.
+
+    Key order and ``repr`` match the dict the dump already prints. Item
+    assignment raises, including for a nested dict that used to be shared.
     """
 
-    def __init__(self, data=None, **kwargs):
-        super().__init__()
-        if isinstance(data, Payload):
-            data = dict(data)
-        if data:
-            self.update(data)
-        if kwargs:
-            self.update(kwargs)
+    _pairs: tuple = ()
+
+    def __getitem__(self, key):
+        for name, value in self._pairs:
+            if name == key:
+                return value
+        raise KeyError(key)
+
+    def __iter__(self):
+        return (name for name, _value in self._pairs)
+
+    def __len__(self):
+        return len(self._pairs)
+
+    def __repr__(self):
+        return repr(dict(self._pairs))
+
+    def __str__(self):
+        return repr(self)
 
 
 def _view(name, fields):
     """A Payload subclass with one read-only attribute per known field."""
-    attrs = {
+    return type(name, (Payload,), {
         field: property(lambda self, field=field: self[field])
         for field in fields
-    }
-    attrs["__slots__"] = ()
-    return type(name, (Payload,), attrs)
+    })
 
 
 PhaseBoundaryPayload = _view("PhaseBoundaryPayload", ("phase",))
@@ -143,8 +191,10 @@ _EMIT_PAYLOAD = {
 
 
 def payload_for(kind, data):
-    """Wrap ``data`` in the payload type for ``kind``, preserving key order."""
+    """Wrap ``data`` in the frozen payload type for ``kind``, preserving key order."""
     cls = _MARK_PAYLOAD.get(kind) or _EMIT_PAYLOAD.get(kind) or Payload
-    if isinstance(data, cls):
+    if type(data) is cls:
         return data
-    return cls(dict(data or {}))
+    pairs = data._pairs if isinstance(data, Payload) else tuple(
+        (key, _freeze(value)) for key, value in dict(data or {}).items())
+    return cls(pairs)

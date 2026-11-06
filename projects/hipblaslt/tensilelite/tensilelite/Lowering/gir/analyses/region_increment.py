@@ -4,6 +4,8 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
+
 from ..nodes import Move, Mark
 from ..nodes import copy_unit, descriptor_unit, Region, PendingMark, BLOCK_EXIT, EARLIEST
 from ..analysis import Analysis
@@ -188,7 +190,7 @@ def walk_violations(prog):
         at = {}
         for node in blk.body:
             if isinstance(node, Mark) and node.kind == "region_increment":
-                a = node.at if isinstance(node.at, dict) else {}
+                a = node.at if isinstance(node.at, Mapping) else {}
                 u = _canonical_unit(prog, a.get("unit") or ())
                 at[u] = at.get(u, 0) + int(a.get("steps", 0))
             elif isinstance(node, Move):
@@ -233,7 +235,7 @@ def _enable_violations(blk) -> list:
     off = {}
     for node in blk.body:
         if isinstance(node, Mark) and node.kind == "descriptor_enable":
-            a = node.at if isinstance(node.at, dict) else {}
+            a = node.at if isinstance(node.at, Mapping) else {}
             key = (a.get("unit"), a.get("member"))
             off[key] = not a.get("enabled")
     return [f"G-ENABLE: block {blk.label!r} leaves {member!r} of {unit!r} NULLED -- its "

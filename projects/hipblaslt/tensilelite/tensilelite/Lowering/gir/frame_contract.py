@@ -4,7 +4,8 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
+from types import MappingProxyType
 
 from .analysis import AnalysisManager
 from .analyses.frame_map import FrameMap
@@ -76,13 +77,19 @@ class Requires:
     values: tuple
 
 
-@dataclass
+@dataclass(frozen=True)
 class Contract:
-    generations: dict = field(default_factory=dict)
-    actions: dict = field(default_factory=dict)
-    accesses: list = field(default_factory=list)
-    edges: list = field(default_factory=list)
-    requires: list = field(default_factory=list)
+    """Frame facts that can no longer be edited after publication.
+
+    ``generations`` and ``actions`` are mapping proxies. ``accesses``,
+    ``edges`` and ``requires`` are tuples. Their members are frozen too.
+    """
+
+    generations: object
+    actions: object
+    accesses: tuple
+    edges: tuple
+    requires: tuple
 
 
 # --- deriving the facts from a program ---------------------------------------
@@ -444,29 +451,37 @@ def build_contract(prog, plans=None) -> Contract:
     distributed = prog.meta.get("agent_distributed", {}) or {}
     by_region = _gens_by_region(prog)
     storage_ids = {}
-    contract = Contract(generations=_generations(prog))
+    generations = _generations(prog)
+    actions = {}
+    accesses = []
     basis = _steady_frame_basis(prog)
     for label, block_actions in plans.items():
         for action in block_actions:
-            contract.actions[action.action_id] = Action(
+            actions[action.action_id] = Action(
                 action.action_id, action.kind, anchors[action.action_id])
-            contract.accesses.extend(
+            accesses.extend(
                 _accesses_of(action, storage, distributed, by_region, storage_ids,
                              basis.get(label, 0)))
-    contract.edges = _edges_of(prog, plans, frames, contract.generations, basis)
+    edges = list(_edges_of(prog, plans, frames, generations, basis))
     domains = analyses.get(TripDomains(), prog)
-    first_free = max(contract.generations, default=-1) + 1
+    first_free = max(generations, default=-1) + 1
     guard_gens, guard_incomings, guard_requires = _guards_of(prog, plans, domains, first_free)
-    contract.generations.update(guard_gens)
-    contract.edges = list(contract.edges) + guard_incomings
-    contract.requires = guard_requires
-    copy_gen = max(contract.generations, default=-1) + 1
+    generations.update(guard_gens)
+    edges.extend(guard_incomings)
+    requires = list(guard_requires)
+    copy_gen = max(generations, default=-1) + 1
     copy_gens, copy_incomings, copy_requires = _steady_copy_guard(
         prog, plans, copy_gen)
-    contract.generations.update(copy_gens)
-    contract.edges.extend(copy_incomings)
-    contract.requires.extend(copy_requires)
-    return contract
+    generations.update(copy_gens)
+    edges.extend(copy_incomings)
+    requires.extend(copy_requires)
+    return Contract(
+        generations=MappingProxyType(generations),
+        actions=MappingProxyType(actions),
+        accesses=tuple(accesses),
+        edges=tuple(edges),
+        requires=tuple(requires),
+    )
 
 
 def install_frame_contract(prog, st_module):
