@@ -10,9 +10,26 @@ analyses use to propose a Mark before a pass places it.
 
 from __future__ import annotations
 from dataclasses import dataclass, field
+from types import MappingProxyType
 
 from .kinds import coerce_mark, coerce_move
 from .registry import FILL_OPS, payload_for  # noqa: F401  FILL_OPS is re-exported
+
+
+class _Sealable:
+    """Refuses attribute writes once `Program.freeze` has run."""
+
+    _open_after_seal = ()
+
+    def __setattr__(self, name, value):
+        if self.__dict__.get("_sealed") and name not in self._open_after_seal:
+            raise AttributeError(
+                "GIR %s is finalized; %r cannot change after run_pipeline"
+                % (type(self).__name__, name))
+        object.__setattr__(self, name, value)
+
+    def _seal(self):
+        object.__setattr__(self, "_sealed", True)
 
 
 # ===========================================================================
@@ -85,7 +102,7 @@ HAZARD_KINDS = (
 
 
 @dataclass
-class Move:
+class Move(_Sealable):
     """THE data-movement verb: one hop down the memory hierarchy.
 
  srcs -- (Ref,) e.g. a global tile.
@@ -111,7 +128,7 @@ class Move:
 
 
 @dataclass
-class Mma:
+class Mma(_Sealable):
     """THE compute verb -- OPEN operand set via srcs/dsts.
 
  Operand identity (A vs B vs scaleA vs meta vs C) is read from each `Ref.tile.operand`;
@@ -128,7 +145,7 @@ class Mma:
 # ===========================================================================
 # 4.4  Mark -- a semantic point (+ the region-based insertion model)
 @dataclass
-class Mark:
+class Mark(_Sealable):
     """A body element carrying NO data movement or compute -- only a GEMM-semantic FACT at a
     program point for L3 to realize (R-SEMANTIC).  `Mark('swap', {hop, gen_from, gen_to})` is
     the FACT "the read generation changes here", NOT a v_xor.
@@ -286,7 +303,7 @@ def terminator_targets(term):
 
 
 @dataclass
-class Block:
+class Block(_Sealable):
     """One software-pipeline Phase as a basic block in the GIR CFG.
 
  phase -- 'prologue' | 'steady{n}' | 'drain{n}' | 'short{n}' | 'tail' (also the block LABEL).
@@ -339,12 +356,15 @@ class GenXfer:
 
 
 @dataclass
-class Program:
+class Program(_Sealable):
     """The whole mainloop as one minimal CFG.
 
  blocks -- {label: Block}, insertion-ordered.
  entry -- entry block label.
  tiles -- interned Tile table (optional; may be empty).
+
+ The passes mutate a Program; `freeze` ends that. After it, blocks, bodies and nodes are
+ read-only and `bump` raises, so the published schedule cannot drift from the program.
     """
     blocks:  dict = field(default_factory=dict)
     entry:   str = "prologue"
@@ -354,7 +374,16 @@ class Program:
     version: int = 0
     pending: list = field(default_factory=list)   # PendingMarks from CollectPendingMarksPass
 
+    # The published schedule is cached on the frozen program.
+    _open_after_seal = ("finalized",)
+
+    @property
+    def frozen(self) -> bool:
+        return bool(self.__dict__.get("_sealed"))
+
     def add_block(self, blk: Block):
+        if self.frozen:
+            raise AttributeError("GIR Program is finalized; no block can be added")
         self.blocks[blk.label] = blk
         return blk
 
@@ -362,7 +391,33 @@ class Program:
         return self.blocks[label]
 
     def bump(self):
+        if self.frozen:
+            raise RuntimeError("GIR Program is finalized; a pass may not change it")
         self.version += 1
+
+    def freeze(self):
+        """End the builder: every container becomes read-only and every node refuses writes."""
+        if self.frozen:
+            return self
+        for blk in self.blocks.values():
+            for inst in blk.body:
+                inst._seal()
+            blk.phis = tuple(blk.phis)
+            blk.xfers = tuple(blk.xfers)
+            blk.body = tuple(blk.body)
+            blk.preds = tuple(blk.preds)
+            blk.succs = tuple(blk.succs)
+            blk.edge_xfers = MappingProxyType(
+                {label: tuple(xfers) for label, xfers in (blk.edge_xfers or {}).items()})
+            blk.path_chunk_base = MappingProxyType(dict(blk.path_chunk_base or {}))
+            blk._seal()
+        self.blocks = MappingProxyType(dict(self.blocks))
+        self.tiles = MappingProxyType(dict(self.tiles))
+        self.params = MappingProxyType(dict(self.params))
+        self.meta = MappingProxyType(dict(self.meta))
+        self.pending = ()
+        self._seal()
+        return self
 
     def walk_rpo(self):
         """Reverse-postorder over the minimal CFG (follows terminators), so a block is yielded

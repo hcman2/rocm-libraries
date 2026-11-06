@@ -2,6 +2,8 @@
 # SPDX-License-Identifier: MIT
 """Build and cache the finalized GIR program for a LoopModel kernel."""
 
+from dataclasses import dataclass
+
 from ...Common.GlobalParameters import globalParameters
 from ...LoopModel.checks import validate_loopir
 from ...LoopModel.decoder import decode_theta
@@ -20,6 +22,29 @@ from ...Lowering.gir.passes.manual_schedule import (
 )
 
 from .Theta import loopModelTheta, namingSolution
+
+
+@dataclass(frozen=True)
+class _GirCacheEntry:
+    """One kernel's frozen GIR program and the schedule published from it.
+
+    An entry is reusable when the kernel name and schedule tag match and it
+    was built with at least the verification and dependency detail requested.
+    The program is frozen, so the schedule cannot go stale behind the entry.
+    """
+
+    key: object
+    program: object
+    schedule: object
+    verified: bool
+    include_dependencies: bool
+    schedule_tag: str
+
+    def serves(self, key, verify_ir, include_dependencies, schedule_tag):
+        return (self.key == key
+                and (self.verified or not verify_ir)
+                and (self.include_dependencies or not include_dependencies)
+                and self.schedule_tag == schedule_tag)
 
 def _valuAllocation(writer):
     """Each operand's `ValuAlloc` as vgprAllocationImplClassic sized it.
@@ -43,16 +68,8 @@ def loopModelGirProgram(writer, kernel):
         globalParameters.get("OutputLoopIR", False)
     )
     cache = getattr(writer, "_loopModelGirCache", None)
-    if cache is not None and cache[0] == key:
-        cached_verified = cache[2] if len(cache) > 2 else True
-        cached_dependencies = cache[3] if len(cache) > 3 else True
-        cached_schedule = cache[4] if len(cache) > 4 else ""
-        if (
-            (not verify_ir or cached_verified)
-            and (not include_dependencies or cached_dependencies)
-            and cached_schedule == schedule_tag
-        ):
-            return cache[1]
+    if cache is not None and cache.serves(key, verify_ir, include_dependencies, schedule_tag):
+        return cache.program
 
     theta, _S = loopModelTheta(writer, kernel)
     with namingSolution(writer, kernel):
@@ -102,7 +119,7 @@ def loopModelGirProgram(writer, kernel):
                 len(passes),
             )
             passes.insert(insertion, manual)
-        finalize_program(
+        schedule = finalize_program(
             prog,
             passes=passes,
             verify=verify_ir,
@@ -120,13 +137,8 @@ def loopModelGirProgram(writer, kernel):
             # OutputLoopIR is diagnosing that exact failure. The failed entry is explicitly
             # unverified, so no later verified request can reuse it as successful codegen.
             writer._loopModelMainloopCache = (key, decoded.program, kinds)
-            writer._loopModelGirCache = (
-                key,
-                prog,
-                False,
-                include_dependencies,
-                schedule_tag,
-            )
+            writer._loopModelGirCache = _GirCacheEntry(
+                key, prog, schedule, False, include_dependencies, schedule_tag)
         if verify_ir:
             violations = check_plan(prog)
             if violations:
@@ -136,14 +148,15 @@ def loopModelGirProgram(writer, kernel):
                     % (len(violations), "\n  ".join(violations[:8])))
     # Verification completed (or was not requested); publish the normal reusable cache state.
     writer._loopModelMainloopCache = (key, decoded.program, kinds)
-    writer._loopModelGirCache = (
-        key,
-        prog,
-        verify_ir,
-        include_dependencies,
-        schedule_tag,
-    )
+    writer._loopModelGirCache = _GirCacheEntry(
+        key, prog, schedule, verify_ir, include_dependencies, schedule_tag)
     return prog
+
+
+def loopModelFinalizedSchedule(writer, kernel):
+    """The published schedule of this kernel's frozen GIR program."""
+    loopModelGirProgram(writer, kernel)
+    return writer._loopModelGirCache.schedule
 
 
 def loopModelGirProgramCached(writer):
@@ -153,7 +166,7 @@ def loopModelGirProgramCached(writer):
         return None
     # Only the name is verifiable here; ids can be recycled by CPython.
     name = getattr(writer.states, "kernelName", None)
-    return cache[1] if (name and cache[0] == name) else None
+    return cache.program if (name and cache.key == name) else None
 
 
 def loopModelIrTextCached(writer):

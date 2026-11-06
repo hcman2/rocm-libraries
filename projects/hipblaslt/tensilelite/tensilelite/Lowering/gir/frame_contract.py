@@ -9,11 +9,11 @@ from types import MappingProxyType
 
 from .analysis import AnalysisManager
 from .analyses.frame_map import FrameMap
-from .analyses.lds_buffers import LdsBufferIds
 from .analyses.cfg import reachable
 from .analyses.trip_domains import TripDomains
 from .emit_plan import plan_program
 from .nodes import Move, successor_labels
+from .storage import SharedAccess, steady_frame_basis, storage_accesses  # noqa: F401
 
 
 # --- the facts ---------------------------------------------------------------
@@ -34,19 +34,6 @@ class Action:
     id: int
     kind: str
     anchor: int
-
-
-@dataclass(frozen=True)
-class SharedAccess:
-    """One shared-memory touch an action makes."""
-    action: int
-    is_write: bool
-    operand: int               # id of the (operand, region) pair this touch names
-    ring: int
-    gen: int = -1              # -1 = not bound to a generation
-    gdelta: int = 0
-    absolute: int = -1         # -1 = the generation is relative, not pinned
-    cross_agent: bool = False
 
 
 @dataclass(frozen=True)
@@ -93,15 +80,6 @@ class Contract:
 
 
 # --- deriving the facts from a program ---------------------------------------
-
-
-def _shared_refs(action):
-    """The shared-memory refs one action touches: a destination writes, a source reads."""
-    source = action.source
-    if not isinstance(source, Move):
-        return ()
-    return (tuple((ref, True) for ref in source.dsts if ref.tile.space == "shared")
-            or tuple((ref, False) for ref in source.srcs if ref.tile.space == "shared"))
 
 
 def _generations(prog) -> dict:
@@ -183,78 +161,6 @@ def _forward_delta(frames, predecessor, destination, gen) -> int:
             "frame contract: phi transfer %s->%s for Gen %d is not one affine delta: %r"
             % (predecessor, destination, gen.id, sorted(deltas)))
     return next(iter(deltas))
-
-
-def _region_of(operand, regions):
-    """The one region a frame instance selects, or -1 for the whole operand.
-
-    `frame_region_instances_of` already enumerates one instance per physical agent, so an instance
-    names a single region. A MAY-set would have to widen every consumer, so refuse instead."""
-    axes = [tuple(sorted(axis)) for axis in (regions or ())]
-    if not axes:
-        return -1
-    if len(axes) > 1 or len(axes[0]) != 1:
-        raise RuntimeError(
-            "frame contract: operand %r selects %r, but one instance must name one region. "
-            "Widen the contract to a region set rather than dropping the extra values."
-            % (operand, axes))
-    return int(axes[0][0])
-
-
-def _gens_by_region(prog):
-    """`(operand, region) -> gen id`, the inverse of `generation_regions`."""
-    return {(str(fact.get("operand")), int(fact.get("region", 0))): int(gen_id)
-            for gen_id, fact in ((prog.meta or {}).get("generation_regions", {}) or {}).items()}
-
-
-def _storage_id(operand, region, storage_ids):
-    """The id of one `(operand, region)` pair, allocated on first sight.
-
-    Whether an operand is region-split is a property of `region_axes`, so a region of -1 and a
-    concrete region never name the same operand and an id compared for equality says everything
-    the pair did."""
-    return storage_ids.setdefault((operand, region), len(storage_ids))
-
-
-def _accesses_of(action, storage, distributed, by_region, storage_ids, frame_basis=0):
-    """Every shared touch of one action, one `SharedAccess` per frame-region instance.
-
-    An instance names ITS OWN region's generation.  A `Ref` carries one `gen`, so a read spanning
-    every region stamped them all with its own; a region whose reader and writer then sat on
-    different generations had no rotation between them at all, which reads as a same-trip WAR
-    against the write that recycles the very buffer being read."""
-    out = []
-    for ref, is_write in _shared_refs(action):
-        operand = str(ref.tile.operand)
-        gen = getattr(ref, "gen", None)
-        absolute = getattr(ref, "abs_gen", None)
-        for regions in storage.geometry.frame_region_instances_of(ref, is_write):
-            region = _region_of(operand, regions)
-            gen_id = -1 if gen is None else int(gen.id)
-            if gen is not None and region >= 0:
-                gen_id = by_region.get((operand, region), gen_id)
-            out.append(SharedAccess(
-                action=action.action_id,
-                is_write=is_write,
-                operand=_storage_id(operand, region, storage_ids),
-                ring=max(1, int(storage.depth_of(ref.tile.operand))),
-                gen=gen_id,
-                # The serialized frame advances between unrolled steady copies. GIR itself keeps
-                # one frame and states that same advance in each Ref's gdelta, so remove the
-                # block basis here: concrete generation = (frame+basis) + (gdelta-basis).
-                gdelta=int(getattr(ref, "gdelta", 0) or 0) - int(frame_basis),
-                absolute=-1 if absolute is None else int(absolute),
-                cross_agent=bool(distributed.get(ref.tile.operand))))
-    return out
-
-
-def _steady_frame_basis(prog):
-    """Chunk-coordinate basis carried by each unrolled steady-copy block."""
-    return {
-        label: (int(block.gen_rel) if block.gen_rel is not None
-                and (label == "steady" or label.startswith("steady")) else 0)
-        for label, block in prog.blocks.items()
-    }
 
 
 def _edges_of(prog, plans, frames, generations, basis):
@@ -429,39 +335,30 @@ def _steady_copy_guard(prog, plans, gen_id):
     return {gen_id: generation}, incomings, requires
 
 
-def build_contract(prog, plans=None) -> Contract:
+def build_contract(prog, plans=None, accesses=None) -> Contract:
     """The frame facts of `prog`, with no GIR CFG topology in them.
 
-    ``plans`` is the program's emit plan when the caller already built it.
-    Passing it keeps action ids and storage accesses on one derivation.
+    ``plans`` and ``accesses`` are the program's emit plan and its storage
+    projection when the caller already built them. The contract never derives
+    an access itself, so it and the instruction stamps share one source.
     """
     analyses = AnalysisManager()
-    storage = analyses.get(LdsBufferIds(), prog)
-    if storage.unresolved:
-        raise RuntimeError("frame contract: unresolved shared references %r"
-                           % (storage.unresolved[:4],))
-    frames = analyses.get(FrameMap(), prog)
     plans = plan_program(prog) if plans is None else plans
+    accesses = storage_accesses(prog, plans, analyses) if accesses is None else accesses
+    frames = analyses.get(FrameMap(), prog)
 
-    actions = [action for block_actions in plans.values() for action in block_actions]
     anchors = {action.action_id: block_actions[0].action_id
                for block_actions in plans.values() if block_actions
                for action in block_actions}
 
-    distributed = prog.meta.get("agent_distributed", {}) or {}
-    by_region = _gens_by_region(prog)
-    storage_ids = {}
     generations = _generations(prog)
     actions = {}
-    accesses = []
-    basis = _steady_frame_basis(prog)
-    for label, block_actions in plans.items():
+    for block_actions in plans.values():
         for action in block_actions:
             actions[action.action_id] = Action(
                 action.action_id, action.kind, anchors[action.action_id])
-            accesses.extend(
-                _accesses_of(action, storage, distributed, by_region, storage_ids,
-                             basis.get(label, 0)))
+    flat_accesses = tuple(access for action_id in actions for access in accesses[action_id])
+    basis = steady_frame_basis(prog)
     edges = list(_edges_of(prog, plans, frames, generations, basis))
     domains = analyses.get(TripDomains(), prog)
     first_free = max(generations, default=-1) + 1
@@ -478,7 +375,7 @@ def build_contract(prog, plans=None) -> Contract:
     return Contract(
         generations=MappingProxyType(generations),
         actions=MappingProxyType(actions),
-        accesses=tuple(accesses),
+        accesses=flat_accesses,
         edges=tuple(edges),
         requires=tuple(requires),
     )

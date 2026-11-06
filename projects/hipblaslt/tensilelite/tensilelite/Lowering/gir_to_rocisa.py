@@ -14,7 +14,6 @@ from .gir.coverage import plan_coverage
 from .gir.nodes import Move
 from .gir.kinds import EmitKind, MoveOp
 from .gir.registry import ACTION_SPECS
-from .gir.render import inst_line
 from .gir.schedule import published_schedule
 from .gir_tag import gir_tag
 from .leaves import LeafEmitters
@@ -69,12 +68,9 @@ class GirToRocisa:
         # Anchors, accesses and the act plan are one FinalizedSchedule. The
         # emitter and StinkyTofu both read that object; neither rebuilds it.
         schedule = published_schedule(prog)
-        contract = schedule.contract
+        self._schedule = schedule
         self._plans = schedule.plans
-        self._actionAnchors = {a.id: a.anchor for a in contract.actions.values()}
-        self._actionAccesses = {}
-        for access in contract.accesses:
-            self._actionAccesses.setdefault(access.action, []).append(access)
+        self._actionAnchors = {a.id: a.anchor for a in schedule.contract.actions.values()}
         band = AnalysisManager().get(RegBandAnalysis(), prog)
         self._leaf = LeafEmitters(writer, reg_depth=_register_depth(prog, band))
         self._ctxMfma = self._leaf.buildMfmaContext(kernel, tPA, tPB)
@@ -122,7 +118,7 @@ class GirToRocisa:
 
         for _i, act in enumerate(acts):
             # Every tag this act produces quotes the line `render_gir` prints for the node.
-            self._actLine = inst_line(act.source) if getattr(act, "source", None) else act.kind
+            self._actLine = self._schedule.lines[act.action_id]
             self._emit_loop_masks(out, act.kind)
             before = len(out.flatitems())
             method = act.spec.method
@@ -258,7 +254,7 @@ class GirToRocisa:
             {"is_write": access.is_write, "operand": access.operand, "ring": access.ring,
              "gen": access.gen, "gdelta": access.gdelta, "absolute": access.absolute,
              "cross_agent": access.cross_agent}
-            for access in self._actionAccesses.get(act.action_id, ())]
+            for access in self._schedule.accesses_of(act.action_id)]
         anchor = self._actionAnchors.get(act.action_id, act.action_id)
         for item in items:
             setter = getattr(item, "setGirActionData", None)
@@ -295,9 +291,7 @@ class GirToRocisa:
 
     def _tag_act(self, out, phase, act):
         """Stamp an act with the GIR dump line of the node that produced it."""
-        node = getattr(act, "source", None)
-        out.addComment0(gir_tag("%s %s" % (
-            phase, inst_line(node) if node is not None else act.kind)))
+        out.addComment0(gir_tag("%s %s" % (phase, self._schedule.lines[act.action_id])))
 
     def _fused_tp(self, unit, tpByOperand, what):
         """`(tP_even, tP_odd)` for a Phi-fused movement, after checking the scaffold can realize it.

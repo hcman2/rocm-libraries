@@ -116,7 +116,14 @@ def test_published_schedule_matches_the_separate_derivations():
         assert [dict(item.at) for item in actions] == [dict(item.at) for item in other]
     assert schedule.action_ids == tuple(
         item.action_id for actions in separate_plans.values() for item in actions)
-    assert list(schedule.accesses) == list(separate_contract.accesses)
+    flat = [access for action_id in schedule.action_ids
+            for access in schedule.accesses_of(action_id)]
+    assert flat == list(separate_contract.accesses)
+    assert list(schedule.contract.accesses) == flat
+    for actions in schedule.plans.values():
+        for action in actions:
+            assert action.source is None
+            assert schedule.lines[action.action_id]
     assert schedule.contract.edges == separate_contract.edges
     assert schedule.contract.requires == separate_contract.requires
     assert schedule.version == program.version
@@ -146,3 +153,46 @@ def test_each_stage_matches_the_flat_pipeline():
         return lower_to_gir(decoded.program, decoded.profile)
 
     assert compare_stage_path(make)
+
+
+def test_run_pipeline_freezes_the_program():
+    import pytest
+    from tensilelite.Lowering.gir.passes import run_pipeline
+
+    program = build_gir(theta(dict(BF16_NT_KMN)))
+    assert program.frozen
+    with pytest.raises(RuntimeError):
+        program.bump()
+    with pytest.raises(RuntimeError):
+        run_pipeline(program)
+    block = next(iter(program.blocks.values()))
+    with pytest.raises(AttributeError):
+        block.body = ()
+    with pytest.raises(AttributeError):
+        block.body[0].deps = ()
+    with pytest.raises(TypeError):
+        program.blocks["x"] = block
+    with pytest.raises(TypeError):
+        program.meta["x"] = 1
+    assert isinstance(block.body, tuple)
+
+
+def test_finalize_refuses_an_unfinished_program():
+    import pytest
+
+    decoded = decode_theta(theta(dict(BF16_NT_KMN)))
+    with pytest.raises(RuntimeError):
+        finalize(lower_to_gir(decoded.program, decoded.profile))
+
+
+def test_access_declarations_match_what_actions_touch():
+    """Every action with storage touches comes from a kind declared to have them."""
+    program = build_gir(theta(dict(BF16_NT_KMN)))
+    schedule = finalize(program)
+    for actions in schedule.plans.values():
+        for action in actions:
+            if schedule.accesses_of(action.action_id):
+                assert action.spec.touches_shared, action.kind
+    touched = {action.kind for actions in schedule.plans.values() for action in actions
+               if schedule.accesses_of(action.action_id)}
+    assert {EmitKind.DS_LOAD, EmitKind.TENSOR_LOAD} <= touched

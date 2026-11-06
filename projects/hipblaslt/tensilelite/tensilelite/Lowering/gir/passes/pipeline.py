@@ -28,7 +28,12 @@ def pipeline():
 
 
 def run_pipeline(prog, passes=None, verify=True):
-    """Run `passes` (default: pipeline()) over `prog`, then verify.  Returns `prog`."""
+    """Run `passes` (default: pipeline()) over `prog`, verify, then freeze it.  Returns `prog`.
+
+    A frozen program is the builder's output: no pass may run on it again.
+    """
+    if prog.frozen:
+        raise RuntimeError("GIR run_pipeline: the program is already finalized")
     passes = passes if passes is not None else pipeline()
     am = AnalysisManager()
     for p in passes:
@@ -40,4 +45,4 @@ def run_pipeline(prog, passes=None, verify=True):
             am.invalidate()
     if verify:
         verify_gir(prog)
-    return prog
+    return prog.freeze()
