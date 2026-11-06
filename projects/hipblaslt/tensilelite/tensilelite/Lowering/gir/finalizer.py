@@ -71,13 +71,18 @@ def build_program(prog, *, manual=None, verify=True, until=None):
     return prog.freeze()
 
 
-def finalize_program(prog, *, manual=None, verify=True, with_text=False):
-    """Run the stages on a lowered working ``prog`` and publish its schedule."""
-    return finalize(build_program(prog, manual=manual, verify=verify), with_text=with_text)
+def finalize_program(prog, *, manual=None, verify=True, check=False, with_text=False):
+    """Run the stages on a lowered working ``prog`` and publish its schedule.
+
+    ``check`` records the semantic plan check in ``schedule.violations``.
+    """
+    return finalize(build_program(prog, manual=manual, verify=verify), with_text=with_text,
+                    check=check)
 
 
 def finalize_loop_schedule(loopir, profile=None, *, include_dependencies=True, params=None,
-                           meta=None, manual=None, verify=True, with_text=False):
+                           meta=None, manual=None, verify=True, check=False,
+                           with_text=False):
     """LoopIR -> FinalizedSchedule.
 
     ``params`` and ``meta`` are target facts the kernel adds to the lowered
@@ -90,4 +95,5 @@ def finalize_loop_schedule(loopir, profile=None, *, include_dependencies=True, p
                         verify=False)
     prog.params.update(params or {})
     prog.meta.update(meta or {})
-    return finalize_program(prog, manual=manual, verify=verify, with_text=with_text)
+    return finalize_program(prog, manual=manual, verify=verify, check=check,
+                            with_text=with_text)

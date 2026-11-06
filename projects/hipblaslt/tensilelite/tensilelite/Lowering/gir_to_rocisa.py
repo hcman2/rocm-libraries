@@ -9,90 +9,71 @@ from __future__ import annotations
 from rocisa import GirFrameContract
 from rocisa.code import Module
 
-from .gir.analysis import AnalysisManager
-from .gir.analyses.reg_band import RegBandAnalysis
 from .gir.coverage import plan_coverage
-from .gir.nodes import Move
 from .gir.kinds import EmitKind, MoveOp
 from .gir.registry import ACTION_SPECS
-from .gir.schedule import published_schedule
 from .gir_tag import gir_tag
 from .leaves import LeafEmitters
-from .loopir_to_gir import steady_chain
 from ..Components.TDMFuse import tdmFusedGroups, tdmSetOwner
 from rocisa.instruction import GirActionKind
 
 
-def _register_depth(prog, band=None):
-    """`{operand: W}` -- the register ring width the leaves use for their `m = u % W` FALLBACK, a
-    GIR fact (`Ref.reg_ring`, validated by RegBand, B3).
-
-    The fallback only runs when GIR did not supply a per-act slot, which for a GIR-planned wmma or
-    read it always does; W is therefore a legacy path, not the authority.
-    """
-    per_op = {}
-    items = band.items() if band is not None else {}
-    if not items:
-        items = {}
-        for blk in prog.blocks.values():
-            for inst in blk.body:
-                if isinstance(inst, Move):
-                    for ref in inst.dsts:
-                        if ref.tile.space == "register" and ref.reg_ring:
-                            items[(ref.tile.operand, ref.group)] = ref.reg_ring
-    for (op, _group), w in items.items():
-        per_op[op] = max(per_op.get(op, 1), int(w))
-    return per_op
-
-
-def install_frame_contract(schedule, st_module):
-    """Hand a schedule's frame contract to StinkyTofu as a struct.
+class FrameContractBuilder:
+    """StinkyTofu's frame contract, projected from a FinalizedSchedule.
 
     Only what belongs to no instruction travels: the generation table, the phi edges and the guard
     constraints. Actions and the storage they touch ride on the instructions as GirActionData.
     """
-    contract = schedule.contract
-    out = GirFrameContract()
-    for generation in sorted(contract.generations.values(), key=lambda g: g.id):
-        out.addGeneration(id=generation.id, ring=generation.ring, entry=generation.entry)
-    for edge in contract.edges:
-        out.addIncoming(dst=edge.dst, src=edge.src, gen=edge.gen, value=edge.value,
-                        relative=edge.relative)
-    for need in contract.requires:
-        out.addRequires(dst=need.dst, src=need.src, gen=need.gen, values=list(need.values))
-    st_module.setGirFrameContract(out)
-    return contract
+
+    def __init__(self, schedule):
+        self._contract = schedule.contract
+
+    def build(self):
+        contract = self._contract
+        out = GirFrameContract()
+        for generation in sorted(contract.generations.values(), key=lambda g: g.id):
+            out.addGeneration(id=generation.id, ring=generation.ring, entry=generation.entry)
+        for edge in contract.edges:
+            out.addIncoming(dst=edge.dst, src=edge.src, gen=edge.gen, value=edge.value,
+                            relative=edge.relative)
+        for need in contract.requires:
+            out.addRequires(dst=need.dst, src=need.src, gen=need.gen, values=list(need.values))
+        return out
+
+    def install(self, st_module):
+        st_module.setGirFrameContract(self.build())
+        return self._contract
 
 
-class GirToRocisa:
-    """Emit a finalized GIR block into a rocisa Module via the L3 `LeafEmitters`.
+class RocisaEmitter:
+    """Emit one FinalizedSchedule block into a rocisa Module via the L3 `LeafEmitters`.
 
     `writer` is the active KernelWriterAssembly.  Construction builds the loop-order-invariant
     leaf contexts ONCE, then `emit_block` realizes any phase's plan.
     """
 
-    def __init__(self, writer, kernel, tPA, tPB, prog):
+    def __init__(self, writer, kernel, tPA, tPB, schedule):
         self.writer = writer
         self.kernel = kernel
         self.tPA, self.tPB = tPA, tPB
         # Leaf emitters provide the layer-2-to-3 realization. The register ring
         # width is a GIR fact passed as a field.
-        self._M = int(prog.meta.get("peel_depth", 0))
+        facts = schedule.target
+        self._M = facts.peel_depth
         import os as _os, sys as _sys
         if _os.environ.get("ST_DUMP_PEEL"):
             print("[peel] M=%d PGR=%s PLR=%s" % (self._M, kernel.get("PrefetchGlobalRead"),
                   kernel.get("PrefetchLocalRead")), file=_sys.stderr)
-        self._memberRegions = dict(prog.meta.get("unit_member_regions", {}) or {})
-        self._regLayout = dict(prog.meta.get("register_layout", {}) or {})
-        self._coveredReads = frozenset((prog.meta.get("read_coverage", {}) or {}).keys())
+        self._memberRegions = facts.unit_member_regions
+        self._regLayout = facts.register_layout
+        self._coveredReads = frozenset(facts.read_coverage.keys())
         # Anchors, accesses and the act plan are one FinalizedSchedule. The
         # emitter and StinkyTofu both read that object; neither rebuilds it.
-        schedule = published_schedule(prog)
         self._schedule = schedule
+        self._facts = facts
         self._plans = schedule.plans
         self._actionAnchors = {a.id: a.anchor for a in schedule.contract.actions.values()}
-        band = AnalysisManager().get(RegBandAnalysis(), prog)
-        self._leaf = LeafEmitters(writer, reg_depth=_register_depth(prog, band))
+        self._leaf = LeafEmitters(writer, reg_depth=dict(facts.register_depth))
         self._ctxMfma = self._leaf.buildMfmaContext(kernel, tPA, tPB)
         self._ctxRd = {"A": self._leaf.buildLdsReadContext(kernel, tPA),
                        "B": self._leaf.buildLdsReadContext(kernel, tPB)}
@@ -107,9 +88,9 @@ class GirToRocisa:
                 self._ctxRd[_tc] = self._leaf.buildMxScaleReadContext(kernel, _mx)
 
     # Scaffold metadata consumed by the tags handed in for each stage.
-    def emit_block(self, prog, phase, *, tpByOperand=None, internalPointerSwap=False,
+    def emit_block(self, phase, *, tpByOperand=None, internalPointerSwap=False,
                    kinds=None) -> Module:
-        """Realize the finalized GIR block `phase` into a rocisa Module.
+        """Realize the schedule's block `phase` into a rocisa Module.
 
         `kinds` keeps only those act kinds, so one block can be emitted at two points in the
         scaffold -- the prologue's copies go where legacy issues its global prefetch, its
@@ -121,19 +102,20 @@ class GirToRocisa:
         acts = list(self._plans[phase])
         if kinds is not None:
             acts = [a for a in acts if a.kind in kinds]
+        facts = self._facts
         cplan = plan_coverage(
-            acts, lambda op: (prog.meta.get("read_coverage", {}) or {}).get(op),
+            acts, lambda op: facts.read_coverage.get(op),
             # A folded read axis makes a lone leader act a complete carrier
             # group because it carries the whole span.
-            folded_of=lambda op: bool((prog.meta.get("read_fold", {}) or {}).get(op))
-                              or bool((prog.meta.get("coverage_axes", {}) or {}).get(op)))
+            folded_of=lambda op: bool(facts.read_fold.get(op))
+                              or bool(facts.coverage_axes.get(op)))
         for _v in cplan.violations:
             raise RuntimeError(
                 "GIR %s: %s\n  theta's merge and the acts in this block disagree; the emitted "
                 "instruction would write a register whose act lives elsewhere." % (phase, _v))
 
         # The scaffold's loop body carries two masks GIR does not model; this block IS that body.
-        in_loop = phase in steady_chain(prog)
+        in_loop = phase in facts.steady_chain
         self._maskedCopy = self._maskedInc = not in_loop
 
         for _i, act in enumerate(acts):

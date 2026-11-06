@@ -1,6 +1,6 @@
 # Copyright Advanced Micro Devices, Inc., or its affiliates.
 # SPDX-License-Identifier: MIT
-"""Build and cache the finalized GIR program for a LoopModel kernel."""
+"""Build and cache the FinalizedSchedule of a LoopModel kernel."""
 
 from dataclasses import dataclass
 
@@ -9,11 +9,8 @@ from ...LoopModel.checks import validate_loopir
 from ...LoopModel.decoder import decode_theta
 from ...LoopModel.loopir import render as render_loopir
 from ...LoopModel.render import render_geometry
-from ...Lowering import gir_text
-from ...Lowering.loopir_to_gir import lower_to_gir
-from ...Lowering.gir import check_plan
 from ...Lowering.gir.analyses import Gl2PrefetchRegions
-from ...Lowering.gir.finalizer import finalize_program
+from ...Lowering.gir.finalizer import finalize_loop_schedule
 from ...Lowering.gir.stages.manual_schedule import manual_schedule, schedule_cache_tag
 
 from .Theta import loopModelTheta, namingSolution
@@ -21,15 +18,13 @@ from .Theta import loopModelTheta, namingSolution
 
 @dataclass(frozen=True)
 class _GirCacheEntry:
-    """One kernel's frozen GIR program and the schedule published from it.
+    """One kernel's FinalizedSchedule.
 
     An entry is reusable when the kernel name and schedule tag match and it
     was built with at least the verification and dependency detail requested.
-    The program is frozen, so the schedule cannot go stale behind the entry.
     """
 
     key: object
-    program: object
     schedule: object
     verified: bool
     include_dependencies: bool
@@ -41,6 +36,7 @@ class _GirCacheEntry:
                 and (self.include_dependencies or not include_dependencies)
                 and self.schedule_tag == schedule_tag)
 
+
 def _valuAllocation(writer):
     """Each operand's `ValuAlloc` as vgprAllocationImplClassic sized it.
 
@@ -49,8 +45,8 @@ def _valuAllocation(writer):
     return dict(getattr(writer.states, "loopModelValuAlloc", {}) or {})
 
 
-def loopModelGirProgram(writer, kernel):
-    """Build and cache the finalized GIR program for one kernel."""
+def loopModelFinalizedSchedule(writer, kernel):
+    """Build and cache the FinalizedSchedule for one kernel."""
     key = getattr(writer.states, "kernelName", None) or id(kernel)
     true_sia0 = int(kernel.get("ScheduleIterAlg", 0) or 0) == 0 \
         and int(kernel.get("_StinkyTofuOptLevel", 0) or 0) == 0
@@ -59,12 +55,11 @@ def loopModelGirProgram(writer, kernel):
     schedule_tag = schedule_cache_tag(str(key), dump_schedule, load_schedule)
     # Match the default this key carries in GlobalParameters.
     verify_ir = bool(globalParameters.get("LoopModelIRVerify", False))
-    include_dependencies = verify_ir or bool(
-        globalParameters.get("OutputLoopIR", False)
-    )
+    output_ir = bool(globalParameters.get("OutputLoopIR", False))
+    include_dependencies = verify_ir or output_ir
     cache = getattr(writer, "_loopModelGirCache", None)
     if cache is not None and cache.serves(key, verify_ir, include_dependencies, schedule_tag):
-        return cache.program
+        return cache.schedule
 
     theta, _S = loopModelTheta(writer, kernel)
     with namingSolution(writer, kernel):
@@ -85,22 +80,6 @@ def loopModelGirProgram(writer, kernel):
                         "\n  ".join(ir_violations[:8]),
                     )
                 )
-        prog = lower_to_gir(
-            decoded.program,
-            decoded.profile,
-            include_dependencies=include_dependencies,
-            verify=False,
-        )
-        prog.meta["valu_alloc"] = {
-            name: {
-                "per_buffer": int(alloc.perBuffer),
-                "total": int(alloc.total),
-            }
-            for name, alloc in (writer.states.loopModelValuAlloc or {}).items()
-            if int(alloc.total) > 0
-        }
-        # PrefetchGL2 is a target-side GIR placement parameter, not LoopIR.
-        prog.params[Gl2PrefetchRegions.PARAM] = kernel["PrefetchGL2"]
         manual = None
         if dump_schedule or load_schedule:
             manual = manual_schedule(
@@ -108,54 +87,53 @@ def loopModelGirProgram(writer, kernel):
                 dump_path=dump_schedule,
                 load_path=load_schedule,
             )
-        schedule = finalize_program(
-            prog,
+        schedule = finalize_loop_schedule(
+            decoded.program,
+            decoded.profile,
+            include_dependencies=include_dependencies,
+            # PrefetchGL2 is a target-side GIR placement parameter, not LoopIR.
+            params={Gl2PrefetchRegions.PARAM: kernel["PrefetchGL2"]},
+            meta={"valu_alloc": {
+                name: {
+                    "per_buffer": int(alloc.perBuffer),
+                    "total": int(alloc.total),
+                }
+                for name, alloc in (writer.states.loopModelValuAlloc or {}).items()
+                if int(alloc.total) > 0
+            }},
             manual=manual,
             verify=verify_ir,
+            check=verify_ir,
+            with_text=include_dependencies,
         )
-        kinds = {}
-        output_ir = bool(globalParameters.get("OutputLoopIR", False))
+        kinds = dict(schedule.dependency_kinds) if output_ir else {}
         if output_ir:
-            for block in prog.blocks.values():
-                for operation in block.body:
-                    for _endpoint, _counter, kind, _scope in (
-                        getattr(operation, "deps", ()) or ()
-                    ):
-                        kinds[kind] = kinds.get(kind, 0) + 1
             # Cache before the semantic check so a failing kernel remains renderable when
             # OutputLoopIR is diagnosing that exact failure. The failed entry is explicitly
             # unverified, so no later verified request can reuse it as successful codegen.
             writer._loopModelMainloopCache = (key, decoded.program, kinds)
             writer._loopModelGirCache = _GirCacheEntry(
-                key, prog, schedule, False, include_dependencies, schedule_tag)
-        if verify_ir:
-            violations = check_plan(prog)
-            if violations:
-                raise ValueError(
-                    "UseLoopModel: the GIR plan fails its own semantic check (%d violation(s)) — "
-                    "a decoder/lowering defect to repair, do NOT gate it off.\n  %s"
-                    % (len(violations), "\n  ".join(violations[:8])))
+                key, schedule, False, include_dependencies, schedule_tag)
+        if schedule.violations:
+            raise ValueError(
+                "UseLoopModel: the GIR plan fails its own semantic check (%d violation(s)) — "
+                "a decoder/lowering defect to repair, do NOT gate it off.\n  %s"
+                % (len(schedule.violations), "\n  ".join(schedule.violations[:8])))
     # Verification completed (or was not requested); publish the normal reusable cache state.
     writer._loopModelMainloopCache = (key, decoded.program, kinds)
     writer._loopModelGirCache = _GirCacheEntry(
-        key, prog, schedule, verify_ir, include_dependencies, schedule_tag)
-    return prog
+        key, schedule, verify_ir, include_dependencies, schedule_tag)
+    return schedule
 
 
-def loopModelFinalizedSchedule(writer, kernel):
-    """The published schedule of this kernel's frozen GIR program."""
-    loopModelGirProgram(writer, kernel)
-    return writer._loopModelGirCache.schedule
-
-
-def loopModelGirProgramCached(writer):
-    """Return the cached program for the current named kernel, if any."""
+def loopModelFinalizedScheduleCached(writer):
+    """Return the cached schedule for the current named kernel, if any."""
     cache = getattr(writer, "_loopModelGirCache", None)
     if not cache:
         return None
     # Only the name is verifiable here; ids can be recycled by CPython.
     name = getattr(writer.states, "kernelName", None)
-    return cache.program if (name and cache.key == name) else None
+    return cache.schedule if (name and cache.key == name) else None
 
 
 def loopModelIrTextCached(writer):
@@ -194,12 +172,15 @@ def loopModelIrTextCached(writer):
 
 
 def loopModelGirTextCached(writer):
-    """Render the GIR emitted by the cached program."""
-    return gir_text(loopModelGirProgramCached(writer))
+    """The `.gir` dump of the cached schedule."""
+    schedule = loopModelFinalizedScheduleCached(writer)
+    if schedule is None or schedule.gir_text is None:
+        return "# GIR unavailable: this kernel has no GIR program\n"
+    return schedule.gir_text
 
 
 def attachFrameContract(writer, stModule, kernel):
     """Attach this kernel's frame contract to the StinkyTofu module."""
-    from ...Lowering.gir_to_rocisa import install_frame_contract
+    from ...Lowering.gir_to_rocisa import FrameContractBuilder
 
-    install_frame_contract(loopModelFinalizedSchedule(writer, kernel), stModule)
+    FrameContractBuilder(loopModelFinalizedSchedule(writer, kernel)).install(stModule)

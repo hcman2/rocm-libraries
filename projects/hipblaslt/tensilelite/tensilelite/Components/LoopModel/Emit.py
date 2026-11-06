@@ -4,38 +4,36 @@
 
 from rocisa.code import Module
 
-from ...Lowering import steady_chain
 from ...Lowering.gir.kinds import EmitKind
 from ...Lowering.gir.registry import FILL_OPS
-from ...Lowering.gir_to_rocisa import GirToRocisa
+from ...Lowering.gir_to_rocisa import RocisaEmitter
 
-from .Program import loopModelGirProgram
+from .Program import loopModelFinalizedSchedule
 
 
-def _girEmitter(writer, kernel, tPA, tPB, prog):
-  """The ONE emitter for this program, as its docstring says it is built to be.
+def _girEmitter(writer, kernel, tPA, tPB, schedule):
+  """The ONE emitter for this schedule.
 
-  Construction settles the frame contract, the act plan and the leaf contexts -- all facts of
-  the finalized program, so a per-stage rebuild re-derives them for every stage.
+  Construction builds the leaf contexts, which are loop-order invariant, so a
+  per-stage rebuild would redo them for every stage.
   """
   cache = getattr(writer, "_loopModelEmitterCache", None)
-  if not (cache and cache[0] is prog and cache[1] == prog.version
-          and cache[2] is tPA and cache[3] is tPB):
-    cache = (prog, prog.version, tPA, tPB, GirToRocisa(writer, kernel, tPA, tPB, prog))
+  if not (cache and cache[0] is schedule and cache[1] is tPA and cache[2] is tPB):
+    cache = (schedule, tPA, tPB, RocisaEmitter(writer, kernel, tPA, tPB, schedule))
     writer._loopModelEmitterCache = cache
-  return cache[4]
+  return cache[3]
 
 
 def girEmitStage(writer, kernel, tPA, tPB, phase, *, internalPointerSwap=False, kinds=None):
-  """Emit one GIR stage from the cached program."""
-  prog = loopModelGirProgram(writer, kernel)
-  return _girEmitter(writer, kernel, tPA, tPB, prog).emit_block(
-      prog, phase, internalPointerSwap=internalPointerSwap, kinds=kinds)
+  """Emit one stage of the kernel's FinalizedSchedule."""
+  schedule = loopModelFinalizedSchedule(writer, kernel)
+  return _girEmitter(writer, kernel, tPA, tPB, schedule).emit_block(
+      phase, internalPointerSwap=internalPointerSwap, kinds=kinds)
 
 
 def loopModelSteadyBlocks(writer, kernel) -> list:
-  """GIR's steady chain for this kernel, in program order."""
-  return steady_chain(loopModelGirProgram(writer, kernel))
+  """The schedule's steady chain for this kernel, in program order."""
+  return list(loopModelFinalizedSchedule(writer, kernel).target.steady_chain)
 
 
 def loopModelSteadyPhase(writer, kernel, loopCopy) -> str:
@@ -65,7 +63,7 @@ PROLOGUE_FILL = FILL_OPS + (EmitKind.WMMA, EmitKind.SWAP)
 
 def _prologueGuardLadder(writer, kernel, tensorParametersA, tensorParametersB, module):
   """The single-trip skipPGR ladder; it brackets the COPIES, so it follows them to their site."""
-  guard = loopModelGirProgram(writer, kernel).meta.get("prefetch_guard")
+  guard = loopModelFinalizedSchedule(writer, kernel).target.prefetch_guard
   if not guard:
     return
   module.add(writer.openPrefetchGlobalRead2orMore(kernel, guard["gen"]))

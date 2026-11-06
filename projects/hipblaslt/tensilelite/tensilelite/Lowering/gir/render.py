@@ -438,3 +438,18 @@ def gir_counts(prog) -> dict:
                 c["wmma"] += 1
         out[blk.phase] = c
     return out
+
+
+def gir_dump(prog) -> str:
+    """The OutputLoopIR `.gir` text of a built Program."""
+    if prog is None:
+        return "# GIR unavailable: this kernel has no GIR program\n"
+    try:
+        return (
+            "# GIR dump (observability; finalized layer-2 program)\n"
+            f"# counts = {gir_counts(prog)}\n"
+            + render_gir(prog)
+            + "\n"
+        )
+    except Exception as error:
+        return f"# GIR render failed: {error}\n"

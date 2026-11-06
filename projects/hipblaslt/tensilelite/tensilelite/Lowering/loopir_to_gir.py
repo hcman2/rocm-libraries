@@ -58,7 +58,8 @@ from .gir.nodes import (
     covered_coords,
 )
 from .gir.kinds import MarkKind
-from .gir.render import gir_counts, render_gir
+from .gir.render import gir_dump, render_gir
+from .gir.schedule import steady_chain
 
 
 @dataclass(frozen=True)
@@ -1896,29 +1897,9 @@ def lower_to_gir(
     return gir
 
 
-def steady_chain(program) -> list:
-    """Return finalized steady GIR blocks in execution order."""
-    if "steady" not in program.blocks:
-        return []
-    chain = ["steady"]
-    while f"steady{len(chain)}" in program.blocks:
-        chain.append(f"steady{len(chain)}")
-    return chain
-
-
 def gir_text(program) -> str:
     """Render an already-built GIR Program for diagnostics."""
-    if program is None:
-        return "# GIR unavailable: this kernel has no GIR program\n"
-    try:
-        return (
-            "# GIR dump (observability; finalized layer-2 program)\n"
-            f"# counts = {gir_counts(program)}\n"
-            + render_gir(program)
-            + "\n"
-        )
-    except Exception as error:
-        return f"# GIR render failed: {error}\n"
+    return gir_dump(program)
 
 
 __all__ = ["gir_text", "lower_to_gir", "steady_chain"]

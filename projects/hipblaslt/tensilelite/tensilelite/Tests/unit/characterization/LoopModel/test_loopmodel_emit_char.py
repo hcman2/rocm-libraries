@@ -6,9 +6,9 @@
 The module is the fork between GIR and the legacy scaffold: it decides which
 GIR block each scaffold site emits, with which op kinds, and what the scaffold
 accumulates alongside. It owns no codegen of its own -- every emit goes through
-``girEmitStage`` -- so the tests stub that seam and the cached program, and
+``girEmitStage`` -- so the tests stub that seam and the cached schedule, and
 assert the sequence of (phase, kinds) the module asks for. That sequence is the
-behavior; the instructions behind it belong to ``GirToRocisa``.
+behavior; the instructions behind it belong to ``RocisaEmitter``.
 """
 
 import pytest
@@ -85,10 +85,12 @@ def seam(monkeypatch):
 
 
 def _program(monkeypatch, meta=None, chain=("steady",)):
-    prog = type("P", (), {"meta": meta or {}})()
-    monkeypatch.setattr(Emit, "loopModelGirProgram", lambda writer, kernel: prog)
-    monkeypatch.setattr(Emit, "steady_chain", lambda p: list(chain))
-    return prog
+    meta = meta or {}
+    target = type("T", (), {"prefetch_guard": meta.get("prefetch_guard"),
+                            "steady_chain": tuple(chain)})()
+    schedule = type("S", (), {"target": target})()
+    monkeypatch.setattr(Emit, "loopModelFinalizedSchedule", lambda writer, kernel: schedule)
+    return schedule
 
 
 # --- loopModelSteadyBlocks / loopModelSteadyPhase -------------------------

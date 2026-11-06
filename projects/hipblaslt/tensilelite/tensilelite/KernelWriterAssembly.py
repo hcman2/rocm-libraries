@@ -214,7 +214,7 @@ from typing import List, Mapping, NamedTuple, Optional, Tuple, Union
 
 from .Components import TDMSplit as _tdm_split
 from .Lowering.lds_geometry import region_row_elems
-from .Components.LoopModel.Program import loopModelGirProgram
+from .Components.LoopModel.Program import loopModelFinalizedSchedule
 from .Components.LoopModel.Registers import operandNumVgprBuffer
 from .Components.LoopModel.TdmRegion import tdmDescriptorEnableGir, tdmGirIsIter, \
     tdmIncrementGir, tdmLoadRegionGir, tdmMaskShortMembers, tdmRegionIncrementGir, \
@@ -25597,15 +25597,15 @@ class KernelWriterAssembly(KernelWriter):
     # Under wave separation B rides A's descriptor, so only the owner rewinds.
     if not self.tdmIssuesOwnLoad(kernel, tc):
       return mod
-    _meta = loopModelGirProgram(self, kernel).meta or {}
-    peel = int(_meta.get("peel_depth") or 0)
+    _facts = loopModelFinalizedSchedule(self, kernel).target
+    peel = _facts.peel_depth
     du = int(kernel["DepthU"])
     if peel < 1 or du & (du - 1):
       return mod
     # The loop runs `T - drain` trips and the prologue advanced `M`, so the descriptor sits
     # `M - drain` chunks past T whenever the drain does not absorb the whole lead -- which is the
     # whole lead when the no-load loop is suppressed. `M - T` still covers a loop cut short.
-    floor = peel - int(_meta.get("drain_steps", peel))
+    floor = peel - int(peel if _facts.drain_steps is None else _facts.drain_steps)
     inc = self._tdmChunkStrideSgpr(kernel, tc)
     with self.allocTmpSgpr(1, tag="tdmTailUndoPeel") as t:
       mod.add(SLShiftRightB32(sgpr(t.idx), hex(int(log2(du))), sgpr("SizeL"), "T = SizeL / DepthU"))
