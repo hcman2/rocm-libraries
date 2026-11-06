@@ -24,7 +24,7 @@ class _Sealable:
     def __setattr__(self, name, value):
         if self.__dict__.get("_sealed") and name not in self._open_after_seal:
             raise AttributeError(
-                "GIR %s is finalized; %r cannot change after run_pipeline"
+                "GIR %s is finalized; %r cannot change after the finalizer"
                 % (type(self).__name__, name))
         object.__setattr__(self, name, value)
 

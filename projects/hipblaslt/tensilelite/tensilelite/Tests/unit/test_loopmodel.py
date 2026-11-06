@@ -15,7 +15,7 @@ from tensilelite.LoopModel.decoder import decode_theta
 from tensilelite.LoopModel.loopir import GLOBAL, REGISTER, SHARED, Axis
 from tensilelite.LoopModel.theta import Global, Shared, Trajectory
 from tensilelite.Lowering import lower_to_gir
-from tensilelite.Lowering.gir.passes import pipeline, run_pipeline
+from tensilelite.Lowering.gir.finalizer import build_program
 from tensilelite.LoopModel import theta as theta_mod# COPY/READ -- the operand roles `off` keys on
 from tensilelite.LoopModel.traversal import presence, presence_axes, summation_names
 from dataclasses import fields
@@ -180,7 +180,7 @@ class Space:
 def build_gir(theta):
     decoded = decode_theta(theta)
     program = lower_to_gir(decoded.program, decoded.profile)
-    run_pipeline(program, passes=pipeline())
+    build_program(program)
     return program
 
 
@@ -1334,13 +1334,12 @@ def _lower_theta(theta):
     from tensilelite.LoopModel.checks import validate_loopir
     from tensilelite.LoopModel.decoder import decode_theta
     from tensilelite.Lowering.loopir_to_gir import lower_to_gir
-    from tensilelite.Lowering.gir.passes import pipeline as gir_pipeline
-    from tensilelite.Lowering.gir.passes import run_pipeline
+    from tensilelite.Lowering.gir.finalizer import build_program
 
     decoded = decode_theta(theta)
     assert not validate_loopir(decoded.program, decoded.profile)
     program = lower_to_gir(decoded.program, decoded.profile)
-    run_pipeline(program, passes=gir_pipeline())
+    build_program(program)
     return decoded, program
 
 
@@ -2268,8 +2267,7 @@ def test_theta_pipeline_builds_valid_loopir_gir():
     from tensilelite.LoopModel.decoder import decode_theta
     from tensilelite.Lowering.loopir_to_gir import lower_to_gir
     from tensilelite.Lowering.gir import check_plan
-    from tensilelite.Lowering.gir.passes import pipeline as gir_pipeline
-    from tensilelite.Lowering.gir.passes import run_pipeline
+    from tensilelite.Lowering.gir.finalizer import build_program
 
     params = {
         "MIWaveTile": [2, 2],
@@ -2287,15 +2285,14 @@ def test_theta_pipeline_builds_valid_loopir_gir():
     required = loopir.required_dependences(decoded.program)
     assert derived and required
     actual = lower_to_gir(decoded.program, decoded.profile)
-    run_pipeline(actual, passes=gir_pipeline())
+    build_program(actual)
     assert not check_plan(actual)
 
 
 def test_dependency_free_lowering_preserves_emitted_gir():
     from tensilelite.LoopModel import adapter
     from tensilelite.LoopModel.decoder import decode_theta
-    from tensilelite.Lowering.gir.passes import pipeline as gir_pipeline
-    from tensilelite.Lowering.gir.passes import run_pipeline
+    from tensilelite.Lowering.gir.finalizer import build_program
     from tensilelite.Lowering.gir.render import render_gir
     from tensilelite.Lowering.loopir_to_gir import lower_to_gir
 
@@ -2322,16 +2319,8 @@ def test_dependency_free_lowering_preserves_emitted_gir():
             if hasattr(operation, "deps"):
                 operation.deps = ()
 
-    run_pipeline(
-        with_dependencies,
-        passes=gir_pipeline(),
-        verify=False,
-    )
-    run_pipeline(
-        without_dependencies,
-        passes=gir_pipeline(),
-        verify=False,
-    )
+    build_program(with_dependencies, verify=False)
+    build_program(without_dependencies, verify=False)
     assert render_gir(with_dependencies) == render_gir(
         without_dependencies
     )
@@ -3648,7 +3637,7 @@ def test_split_regions_are_flattened_offsets_with_loop_split_refills():
     from tensilelite.LoopModel.schedule import BufferDepths, Schedule, prefetch_refusals
     from tensilelite.Lowering import lower_to_gir
     from tensilelite.Lowering.gir.emit_plan import plan_block
-    from tensilelite.Lowering.gir.passes import pipeline, run_pipeline
+    from tensilelite.Lowering.gir.finalizer import build_program
     from tensilelite.Lowering.gir.verify_dataflow import check_plan
 
     kernel = _f8_split_nkm_register_kernel()
@@ -3686,7 +3675,7 @@ def test_split_regions_are_flattened_offsets_with_loop_split_refills():
     }
     assert split_axes == set()
     program = lower_to_gir(decoded.program, decoded.profile)
-    run_pipeline(program, passes=pipeline())
+    build_program(program)
     assert check_plan(program) == []
     reads = [action for action in plan_block(program, "steady") if action.kind == "read"]
     keys = [(action.at["tc"], action.at["tile_flat"], action.at["k_flat"],

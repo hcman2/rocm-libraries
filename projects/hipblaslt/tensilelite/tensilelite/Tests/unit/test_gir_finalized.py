@@ -1,6 +1,6 @@
 # Copyright Advanced Micro Devices, Inc., or its affiliates.
 # SPDX-License-Identifier: MIT
-"""Typed kinds, one published schedule, and stage parity with the flat pipeline."""
+"""Typed kinds, the stage table and the one published schedule."""
 
 from tensilelite.Lowering.gir.emit_plan import EmitAction, plan_program
 from tensilelite.Lowering.gir.frame_contract import build_contract
@@ -167,15 +167,14 @@ DIFFERENTIAL_CASES = (
 )
 
 
-def test_direct_finalizer_matches_lowering_plus_pipeline():
-    """finalize_loop_schedule(LoopIR) against the old lower_to_gir + run_pipeline path."""
-    from tensilelite.Lowering.gir.finalizer import finalize_loop_schedule
-    from tensilelite.Lowering.gir.passes import pipeline, run_pipeline
+def test_direct_finalizer_matches_lowering_plus_build():
+    """finalize_loop_schedule(LoopIR) against lower_to_gir + build_program + finalize."""
+    from tensilelite.Lowering.gir.finalizer import build_program, finalize_loop_schedule
 
     for params in DIFFERENTIAL_CASES:
         old_decoded = decode_theta(theta(dict(params)))
         old = lower_to_gir(old_decoded.program, old_decoded.profile)
-        run_pipeline(old, passes=pipeline())
+        build_program(old)
         expected = finalize(old, with_text=True)
 
         new_decoded = decode_theta(theta(dict(params)))
@@ -184,16 +183,16 @@ def test_direct_finalizer_matches_lowering_plus_pipeline():
         assert _schedule_facts(actual) == _schedule_facts(expected), params
 
 
-def test_run_pipeline_freezes_the_program():
+def test_build_program_freezes_the_program():
     import pytest
-    from tensilelite.Lowering.gir.passes import run_pipeline
+    from tensilelite.Lowering.gir.finalizer import build_program
 
     program = build_gir(theta(dict(BF16_NT_KMN)))
     assert program.frozen
     with pytest.raises(RuntimeError):
         program.bump()
     with pytest.raises(RuntimeError):
-        run_pipeline(program)
+        build_program(program)
     block = next(iter(program.blocks.values()))
     with pytest.raises(AttributeError):
         block.body = ()

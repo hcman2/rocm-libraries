@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: MIT
 """The GIR lowering: the program built from a decoded theta, and the passes over it.
 
-Covers `tensilelite.Lowering` -- `lower_to_gir`, the pass pipeline, the analyses (value placement,
+Covers `tensilelite.Lowering` -- `lower_to_gir`, the finalizer stages, the analyses (value placement,
 region increment), the frame contract, and the dataflow checker.  The theta
 each test starts from is a means; `test_loopmodel.py` owns what the model derives.
 """
@@ -15,8 +15,7 @@ from tensilelite.LoopModel import adapter
 from tensilelite.LoopModel.adapter import kernel_to_params as _kernel_to_params
 from tensilelite.LoopModel.decoder import decode_theta
 from tensilelite.Lowering.loopir_to_gir import lower_to_gir
-from tensilelite.Lowering.gir.passes import pipeline as gir_pipeline
-from tensilelite.Lowering.gir.passes import run_pipeline
+from tensilelite.Lowering.gir.finalizer import build_program
 from tensilelite.Lowering.gir.verify_dataflow import check_plan
 from tensilelite.Lowering.gir.analyses.region_increment import walk_violations
 from tensilelite.Lowering.gir.analyses.value_placement import (
@@ -53,7 +52,7 @@ def kernel_to_params(kernel):
 def build_gir(theta, loop_copies=None):
     decoded = decode_theta(theta)
     program = lower_to_gir(decoded.program, decoded.profile)
-    run_pipeline(program, passes=gir_pipeline())
+    build_program(program)
     if loop_copies is not None:
         from tensilelite.Lowering import steady_chain
         assert len(steady_chain(program)) == max(1, int(loop_copies))

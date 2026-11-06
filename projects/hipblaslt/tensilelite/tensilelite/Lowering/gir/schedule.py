@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: MIT
 """The facts published once a GIR builder has finished.
 
-The Program is mutable only while the passes run; ``run_pipeline`` freezes it.
+The Program is mutable only while the finalizer stages run; ``build_program`` freezes it.
 Action ids, the emit plan, storage accesses, the frame contract and each
 action's dump line are produced together here, and both the rocisa adapter and
 StinkyTofu read this object.
@@ -45,7 +45,7 @@ class FinalizedSchedule:
 def finalize(prog, with_text=False) -> FinalizedSchedule:
     """Plan a frozen ``prog`` once and attach the immutable snapshot to it."""
     if not prog.frozen:
-        raise RuntimeError("GIR finalize: run_pipeline has not finished this program")
+        raise RuntimeError("GIR finalize: the finalizer has not finished this program")
     plans = plan_program(prog)
     accesses = storage_accesses(prog, plans)
     contract = build_contract(prog, plans=plans, accesses=accesses)
