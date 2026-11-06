@@ -11,6 +11,8 @@ analyses use to propose a Mark before a pass places it.
 from __future__ import annotations
 from dataclasses import dataclass, field
 
+from .kinds import MarkKind, MoveOp, coerce_mark, coerce_move, payload_for
+
 
 # ===========================================================================
 # 4.2  Tile, Gen, Ref -- the nouns
@@ -81,8 +83,8 @@ HAZARD_KINDS = (
     "inplace-WAR",     # write-after-read into the SAME buffer -- nothing but this edge orders it
 )
 
-MOVE_OPS = ("tensor_load", "ds_load", "global_load", "store")
-FILL_OPS = ("ds_load", "global_load")
+MOVE_OPS = tuple(MoveOp)
+FILL_OPS = (MoveOp.DS_LOAD, MoveOp.GLOBAL_LOAD)
 
 
 @dataclass
@@ -106,6 +108,10 @@ class Move:
     # rather than re-derived from whichever refs survived.
     unit: tuple = ()
 
+    def __post_init__(self):
+        if self.op:
+            self.op = coerce_move(self.op)
+
 
 @dataclass
 class Mma:
@@ -124,10 +130,7 @@ class Mma:
 
 # ===========================================================================
 # 4.4  Mark -- a semantic point (+ the region-based insertion model)
-MARK_KINDS = (
-    "phase_boundary", "swap", "gr_increment", "region_increment",
-    "descriptor_enable", "gl2_prefetch", "chunk_pin", "buffer_pin",
-)
+MARK_KINDS = tuple(MarkKind)
 
 
 @dataclass
@@ -140,6 +143,10 @@ class Mark:
     """
     kind: str
     at:   dict = field(default_factory=dict)
+
+    def __post_init__(self):
+        self.kind = coerce_mark(self.kind)
+        self.at = payload_for(self.kind, self.at)
 
 
 # ===========================================================================

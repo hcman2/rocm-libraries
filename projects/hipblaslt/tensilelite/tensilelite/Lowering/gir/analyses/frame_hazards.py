@@ -264,11 +264,12 @@ class _FrameHazards(Analysis):
 
 
 class FrameHazards(_FrameHazards):
-    """Workgroup-complete hazards used by GIR waits and fences.
+    """Workgroup-complete storage overlaps used to check the frame contract.
 
     A static instruction executes on every agent, so an agent-relative read contributes every
-    physical region those agents select. This is the completion/fence footprint, not a
-    representative scheduling address.
+    physical region those agents select. This is the completion footprint, not a representative
+    scheduling address. It does not choose a barrier, wait, or fence instruction: that policy
+    belongs to StinkyTofu. Placement constraints use `SchedulingFrameHazards`.
     """
 
 

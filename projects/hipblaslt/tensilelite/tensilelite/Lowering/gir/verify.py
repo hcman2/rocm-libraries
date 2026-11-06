@@ -7,6 +7,7 @@ verify_gir -- the GIR well-formedness verifier.
 from __future__ import annotations
 
 from .nodes import Move, Mma, Mark, MARK_KINDS, terminator_targets
+from .registry import MARK_SCHEMA, mark_verifier, register_mark_verifier
 from .analysis import AnalysisManager
 from .analyses import BackEdges
 from .analyses.loop_shape import LoopShape, reduction_coverage_violations
@@ -16,25 +17,19 @@ from .analyses.lds_buffers import LdsBufferIds, shared_refs
 from .analyses.region_increment import walk_violations
 
 
-# Per-kind Mark `at` payload schema.
-_MARK_SCHEMA = {
-    "phase_boundary": ("phase",),
-    # A swap additionally names the pointer, but WHICH name depends on the hop: a read swap moves
-    # an operand's LocalReadAddr (`operand`), a copy swap moves a Phi movement's descriptor
-    "swap":           ("hop", "gen_from", "gen_to"),
-    "gr_increment":   ("unit",),
-    # A region_increment moves the TDM descriptor between STORAGE REGIONS of one split tile.
-    # `steps` is SIGNED -- forward to a later region, negative to walk back -- and the walk must CLOSE
-    "region_increment": ("unit", "steps", "from_region", "to_region"),
-    # A member that does not move on this step: its descriptor is nulled (count=0) and restored.
-    "descriptor_enable": ("unit", "member", "enabled"),
-    "gl2_prefetch":   ("depth", "block"),
-    # The chunk a movement's address must hold HERE, so an advance serving a conditionally
-    # executed successor is established on the path both arms take.
-    "chunk_pin":      ("unit", "chunk"),
-    # The buffer generation a movement's pointer must hold HERE, for the same reason.
-    "buffer_pin":     ("hop", "unit", "gen"),
-}
+# The schema lives in the shared handler registry. A swap additionally names the
+# pointer, and WHICH name depends on the hop: a read swap moves an operand's
+# LocalReadAddr (`operand`), a copy swap moves a Phi movement's descriptor.
+def _verify_swap(inst, blk, have):
+    key = "operand" if inst.at.get("hop") == "ds_load" else "unit"
+    if key not in have:
+        raise RuntimeError(
+            f"G-MARK: Mark('swap', hop={inst.at.get('hop')!r}) in {blk.label} must name "
+            f"its pointer with '{key}' (a read swap names an operand, a copy swap names "
+            f"the Phi movement's member tuple); got fields {sorted(have)}")
+
+
+register_mark_verifier("swap", _verify_swap)
 
 
 def _all_insts(prog):
@@ -286,21 +281,15 @@ def _check_marks(prog):
             continue
         if inst.kind not in MARK_KINDS:
             raise RuntimeError(f"G-MARK: unknown Mark kind '{inst.kind}' in {blk.label}")
-        need = _MARK_SCHEMA[inst.kind]
+        need = MARK_SCHEMA[inst.kind]
         have = set((inst.at or {}).keys())
         missing = [k for k in need if k not in have]
         if missing:
             raise RuntimeError(
                 f"G-MARK: Mark('{inst.kind}') in {blk.label} missing fields {missing}")
-        if inst.kind == "swap":
-            # The pointer name is hop-dependent (see _MARK_SCHEMA).  Requiring the RIGHT one, not
-            # merely "some name", is what stops a copy swap from being labelled with a bare operand
-            key = "operand" if inst.at.get("hop") == "ds_load" else "unit"
-            if key not in have:
-                raise RuntimeError(
-                    f"G-MARK: Mark('swap', hop={inst.at.get('hop')!r}) in {blk.label} must name "
-                    f"its pointer with '{key}' (a read swap names an operand, a copy swap names "
-                    f"the Phi movement's member tuple); got fields {sorted(have)}")
+        extra = mark_verifier(inst.kind)
+        if extra is not None:
+            extra(inst, blk, have)
 
 
 def verify_gir(prog, expect_steady_loops="one"):

@@ -422,15 +422,19 @@ def _steady_copy_guard(prog, plans, gen_id):
     return {gen_id: generation}, incomings, requires
 
 
-def build_contract(prog) -> Contract:
-    """The frame facts of `prog`, with no GIR CFG topology in them."""
+def build_contract(prog, plans=None) -> Contract:
+    """The frame facts of `prog`, with no GIR CFG topology in them.
+
+    ``plans`` is the program's emit plan when the caller already built it.
+    Passing it keeps action ids and storage accesses on one derivation.
+    """
     analyses = AnalysisManager()
     storage = analyses.get(LdsBufferIds(), prog)
     if storage.unresolved:
         raise RuntimeError("frame contract: unresolved shared references %r"
                            % (storage.unresolved[:4],))
     frames = analyses.get(FrameMap(), prog)
-    plans = plan_program(prog)
+    plans = plan_program(prog) if plans is None else plans
 
     actions = [action for block_actions in plans.values() for action in block_actions]
     anchors = {action.action_id: block_actions[0].action_id
@@ -473,8 +477,9 @@ def install_frame_contract(prog, st_module):
     encoded, so there is no text format for a writer and a reader to disagree about.
     """
     from rocisa import GirFrameContract
+    from .schedule import published_schedule
 
-    contract = build_contract(prog)
+    contract = published_schedule(prog).contract
     out = GirFrameContract()
     for generation in sorted(contract.generations.values(), key=lambda g: g.id):
         out.addGeneration(id=generation.id, ring=generation.ring, entry=generation.entry)

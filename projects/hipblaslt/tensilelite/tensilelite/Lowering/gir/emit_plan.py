@@ -7,9 +7,11 @@ Emit plan -- the PURE half of GIR -> rocisa (L3).
 from __future__ import annotations
 from dataclasses import dataclass, replace
 
+from .kinds import coerce_emit, payload_for
 from .nodes import Move, Mma, Mark
 from .analyses.region_increment import region_of, walk_ref, _flat, _n_regions
 from .nodes import copy_unit, covered_coords, first_shared_ref
+from .registry import MARK_EMIT
 
 
 @dataclass(frozen=True)
@@ -21,6 +23,11 @@ class EmitAction:
     # that produced this action and is intentionally not serialized by ordinary emitters.
     action_id: int = -1
     source: object = None
+
+    def __post_init__(self):
+        kind = coerce_emit(self.kind)
+        object.__setattr__(self, "kind", kind)
+        object.__setattr__(self, "at", payload_for(kind, self.at))
 
 
 def _project(coord, axes, inner_order, extents):
@@ -232,21 +239,11 @@ def _plan_mma(prog, inst, actions):
 
 
 def _plan_mark(inst, actions):
-    if inst.kind == "swap":
-        actions.append(EmitAction("swap", dict(inst.at)))
-    elif inst.kind == "gr_increment":
-        actions.append(EmitAction("gr_inc", dict(inst.at)))
-    elif inst.kind == "region_increment":
-        # ONE STEP of the TDM descriptor between storage regions.  Distinct from `gr_inc`.
-        # that advances the movement to the next summation CHUNK, this moves within one chunk's
-        actions.append(EmitAction("region_inc", dict(inst.at)))
-    elif inst.kind == "descriptor_enable":
-        actions.append(EmitAction("desc_enable", dict(inst.at)))
-    elif inst.kind == "gl2_prefetch":
-        # the L2 warm-up pair, at the point `Gl2PrefetchRegions` chose.  Unlike every other
-        # act here it names no operand and no movement -- the position IS the entire content.
-        actions.append(EmitAction("gl2_prefetch", dict(inst.at)))
-    # phase_boundary is a no-op for emit; the fork handles its label.
+    """Plan one Mark from the shared kind table. Unmapped kinds emit nothing."""
+    kind = MARK_EMIT.get(inst.kind)
+    if kind is None:
+        return
+    actions.append(EmitAction(kind, dict(inst.at)))
 
 
 def _plan_block_raw(prog, phase):

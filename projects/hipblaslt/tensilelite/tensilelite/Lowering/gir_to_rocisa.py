@@ -11,10 +11,10 @@ from rocisa.code import Module
 from .gir.analysis import AnalysisManager
 from .gir.analyses.reg_band import RegBandAnalysis
 from .gir.coverage import plan_coverage
-from .gir.emit_plan import plan_program
-from .gir.frame_contract import build_contract
-from .gir.nodes import FILL_OPS, Move
+from .gir.nodes import Move
+from .gir.registry import emit_method
 from .gir.render import inst_line
+from .gir.schedule import published_schedule
 from .gir_tag import gir_tag
 from .leaves import LeafEmitters
 from .loopir_to_gir import steady_chain
@@ -65,11 +65,11 @@ class GirToRocisa:
         self._memberRegions = dict(prog.meta.get("unit_member_regions", {}) or {})
         self._regLayout = dict(prog.meta.get("register_layout", {}) or {})
         self._coveredReads = frozenset((prog.meta.get("read_coverage", {}) or {}).keys())
-        # Instruction anchors and accesses are carried by the frame contract;
-        # only generation and phi-edge data remains in the module metadata.
-        contract = build_contract(prog)
-        # The act plan is program-wide and loop-order invariant, like the contract above.
-        self._plans = plan_program(prog)
+        # Anchors, accesses and the act plan are one FinalizedSchedule. The
+        # emitter and StinkyTofu both read that object; neither rebuilds it.
+        schedule = published_schedule(prog)
+        contract = schedule.contract
+        self._plans = schedule.plans
         self._actionAnchors = {a.id: a.anchor for a in contract.actions.values()}
         self._actionAccesses = {}
         for access in contract.accesses:
@@ -99,7 +99,6 @@ class GirToRocisa:
         register fill where legacy fills.  The acts keep their relative order either way.
         """
         tpByOperand = tpByOperand or self._tp
-        w = self._leaf                      # reg_depth already set at construction (a GIR fact)
         out = Module("GIR %s body" % phase)
 
         acts = list(self._plans[phase])
@@ -125,71 +124,96 @@ class GirToRocisa:
             self._actLine = inst_line(act.source) if getattr(act, "source", None) else act.kind
             self._emit_loop_masks(out, act.kind)
             before = len(out.flatitems())
-            kind, at = act.kind, act.at
-            if kind == "wmma":
-                self._tag_act(out, phase, act)
-                out.add(w.emitWmmaTile(self.kernel, self.tPA, self.tPB, self._ctxMfma,
-                                       idx0=at["idx0"], idx1=at["idx1"], u=at["u"],
-                                       bufA=at.get("bufA"), bufB=at.get("bufB"),
-                                       bufMXA=at.get("bufMXA"), bufMXB=at.get("bufMXB"),
-                                       unitA=at.get("unitA"), unitB=at.get("unitB"),
-                                       unitMXA=(None if "MXSA" in self._coveredReads
-                                                else at.get("unitMXA")),
-                                       unitMXB=(None if "MXSB" in self._coveredReads
-                                                else at.get("unitMXB")),
-                                       baseA=self._reg_base("A", at.get("groupA"), at.get("bufA")),
-                                       baseB=self._reg_base("B", at.get("groupB"), at.get("bufB")),
-                                       baseMXA=self._reg_base(
-                                           "MXSA", at.get("groupMXA"), at.get("bufMXA")),
-                                       baseMXB=self._reg_base(
-                                           "MXSB", at.get("groupMXB"), at.get("bufMXB")),
-                                       girComment=self._actLine))
-            elif kind in FILL_OPS:
-                tc = at["tc"]
-                # `tile` is the WITHIN-REGION index and `tile_flat` the register index; they differ
-                # only for a region-split operand, and passing one for both is the defect.
-                self._tag_act(out, phase, act)
-                _qd = cplan.decision(_i)
-                out.add(w.emitLdsReadTile(self.kernel, self._tp[tc], self._ctxRd[tc],
-                                          tileIdx=at["tile"], kIdx=at["k"],
-                                          bufferIdx=at["reg_buf"],
-                                          region=at.get("address_region", at.get("region", 0)),
-                                          regTileIdx=at.get("tile_flat", at["tile"]),
-                                          regUnitIdx=at.get("unit_index"),
-                                          regBase=self._reg_base(tc, at.get("group"),
-                                                                 at.get("reg_buf")),
-                                          kFlat=at.get("k_flat", at["k"]),
-                                          quantum=_qd, gen=at.get("gen"),
-                                          girComment=self._actLine))
-            elif kind == "swap":
-                # A read swap names an operand, a copy swap names the Phi movement -- see
-                # `gir/refs.copy_unit` and the act table in `gir/emit_plan`.
-                who = at["operand"] if at["hop"] == "ds_load" else at["unit"]
-                self._tag_act(out, phase, act)
-                self._emit_swap(out, at["hop"], who, tpByOperand, internalPointerSwap)
-            elif kind == "gl2_prefetch":
-                #: GIR chose the POINT; the instructions are the scaffold's own, unchanged.
-                # Increment BEFORE issue -- the pair is ordered internally (the clamp zeroes
-                _gl2tag = "gl2 depth=%s (cache warm, no consumer)" % at.get("depth")
-                self._append_tag(self.writer.codes.gl2PrefetchIncrement, _gl2tag + " inc")
-                self._append_tag(self.writer.codes.gl2Prefetch, _gl2tag + " issue")
-                out.add(self.writer.codes.gl2PrefetchIncrement)
-                out.add(self.writer.codes.gl2Prefetch)
-            elif kind == "gr_inc":
-                self._tag_act(out, phase, act)
-                self._emit_gr_inc(out, at["unit"], tpByOperand, at.get("chunks", 1),
-                                  at.get("to_chunk"), phase=phase)
-            elif kind == "tensor_load":
-                self._tag_act(out, phase, act)
-                self._emit_copy_masked(out, at, tpByOperand)
-            elif kind == "desc_enable":
-                self._emit_desc_enable(out, tuple(at["unit"]), at["member"],
-                                       bool(at["enabled"]), tpByOperand)
-            elif kind == "region_inc":
-                self._emit_region_inc_act(out, phase, at, tpByOperand)
+            method = emit_method(act.kind)
+            if method is not None:
+                getattr(self, method)(
+                    out, phase, act, tpByOperand, internalPointerSwap, cplan, _i)
             self._stamp_action(out.flatitems()[before:], act)
         self._drop_mem_tokens(out)
         return out
+
+    def _emit_planned_wmma(self, out, phase, act, tpByOperand, internalPointerSwap, cplan, index):
+        del tpByOperand, internalPointerSwap, cplan, index
+        w = self._leaf
+        at = act.at
+        self._tag_act(out, phase, act)
+        out.add(w.emitWmmaTile(self.kernel, self.tPA, self.tPB, self._ctxMfma,
+                               idx0=at["idx0"], idx1=at["idx1"], u=at["u"],
+                               bufA=at.get("bufA"), bufB=at.get("bufB"),
+                               bufMXA=at.get("bufMXA"), bufMXB=at.get("bufMXB"),
+                               unitA=at.get("unitA"), unitB=at.get("unitB"),
+                               unitMXA=(None if "MXSA" in self._coveredReads
+                                        else at.get("unitMXA")),
+                               unitMXB=(None if "MXSB" in self._coveredReads
+                                        else at.get("unitMXB")),
+                               baseA=self._reg_base("A", at.get("groupA"), at.get("bufA")),
+                               baseB=self._reg_base("B", at.get("groupB"), at.get("bufB")),
+                               baseMXA=self._reg_base(
+                                   "MXSA", at.get("groupMXA"), at.get("bufMXA")),
+                               baseMXB=self._reg_base(
+                                   "MXSB", at.get("groupMXB"), at.get("bufMXB")),
+                               girComment=self._actLine))
+
+    def _emit_planned_fill(self, out, phase, act, tpByOperand, internalPointerSwap, cplan, index):
+        del tpByOperand, internalPointerSwap
+        w = self._leaf
+        at = act.at
+        tc = at["tc"]
+        # `tile` is the WITHIN-REGION index and `tile_flat` the register index; they differ
+        # only for a region-split operand, and passing one for both is the defect.
+        self._tag_act(out, phase, act)
+        out.add(w.emitLdsReadTile(self.kernel, self._tp[tc], self._ctxRd[tc],
+                                  tileIdx=at["tile"], kIdx=at["k"],
+                                  bufferIdx=at["reg_buf"],
+                                  region=at.get("address_region", at.get("region", 0)),
+                                  regTileIdx=at.get("tile_flat", at["tile"]),
+                                  regUnitIdx=at.get("unit_index"),
+                                  regBase=self._reg_base(tc, at.get("group"),
+                                                         at.get("reg_buf")),
+                                  kFlat=at.get("k_flat", at["k"]),
+                                  quantum=cplan.decision(index), gen=at.get("gen"),
+                                  girComment=self._actLine))
+
+    def _emit_planned_swap(self, out, phase, act, tpByOperand, internalPointerSwap, cplan, index):
+        del cplan, index
+        at = act.at
+        # A read swap names an operand, a copy swap names the Phi movement.
+        who = at["operand"] if at["hop"] == "ds_load" else at["unit"]
+        self._tag_act(out, phase, act)
+        self._emit_swap(out, at["hop"], who, tpByOperand, internalPointerSwap)
+
+    def _emit_planned_gl2(self, out, phase, act, tpByOperand, internalPointerSwap, cplan, index):
+        del phase, tpByOperand, internalPointerSwap, cplan, index
+        at = act.at
+        #: GIR chose the POINT; the instructions are the scaffold's own, unchanged.
+        # Increment BEFORE issue -- the pair is ordered internally (the clamp zeroes
+        _gl2tag = "gl2 depth=%s (cache warm, no consumer)" % at.get("depth")
+        self._append_tag(self.writer.codes.gl2PrefetchIncrement, _gl2tag + " inc")
+        self._append_tag(self.writer.codes.gl2Prefetch, _gl2tag + " issue")
+        out.add(self.writer.codes.gl2PrefetchIncrement)
+        out.add(self.writer.codes.gl2Prefetch)
+
+    def _emit_planned_gr_inc(self, out, phase, act, tpByOperand, internalPointerSwap, cplan, index):
+        del internalPointerSwap, cplan, index
+        at = act.at
+        self._tag_act(out, phase, act)
+        self._emit_gr_inc(out, at["unit"], tpByOperand, at.get("chunks", 1),
+                          at.get("to_chunk"), phase=phase)
+
+    def _emit_planned_tensor_load(self, out, phase, act, tpByOperand, internalPointerSwap, cplan, index):
+        del internalPointerSwap, cplan, index
+        self._tag_act(out, phase, act)
+        self._emit_copy_masked(out, act.at, tpByOperand)
+
+    def _emit_planned_desc_enable(self, out, phase, act, tpByOperand, internalPointerSwap, cplan, index):
+        del phase, internalPointerSwap, cplan, index
+        at = act.at
+        self._emit_desc_enable(out, tuple(at["unit"]), at["member"],
+                               bool(at["enabled"]), tpByOperand)
+
+    def _emit_planned_region_inc(self, out, phase, act, tpByOperand, internalPointerSwap, cplan, index):
+        del internalPointerSwap, cplan, index
+        self._emit_region_inc_act(out, phase, act.at, tpByOperand)
 
     def _emit_loop_masks(self, out, kind):
         """SuppressNoLoadLoop's two in-loop masks, each once per block, ahead of what it silences.
