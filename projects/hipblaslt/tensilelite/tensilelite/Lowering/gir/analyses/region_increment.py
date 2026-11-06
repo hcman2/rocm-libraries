@@ -6,6 +6,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 
+from ..kinds import MarkKind
 from ..nodes import Move, Mark
 from ..nodes import copy_unit, descriptor_unit, Region, PendingMark, BLOCK_EXIT, EARLIEST
 from ..analysis import Analysis
@@ -139,7 +140,7 @@ class RegionIncrementRegions(Analysis):
                 if reg != cur:
                     # TIGHTLY BOUNDED: `after` is this descriptor's PREVIOUS copy, `before` is this.
                     pending.append(PendingMark(
-                        Mark("region_increment", {"unit": unit, "steps": reg - cur,
+                        Mark(MarkKind.REGION_INCREMENT, {"unit": unit, "steps": reg - cur,
                                                   "from_region": cur, "to_region": reg,
                                                   "axis_steps": _axis_delta(rms, curv, rtup)}),
                         Region(blk.label, after=prev.get(desc), before=node, policy=EARLIEST)))
@@ -147,7 +148,7 @@ class RegionIncrementRegions(Analysis):
                     if cur == 0 or reg == 0:
                         for m in _short_members(prog, unit):
                             pending.append(PendingMark(
-                                Mark("descriptor_enable",
+                                Mark(MarkKind.DESCRIPTOR_ENABLE,
                                      {"unit": unit, "member": m, "enabled": reg == 0}),
                                 Region(blk.label, after=prev.get(desc), before=node,
                                        policy=EARLIEST)))
@@ -158,7 +159,7 @@ class RegionIncrementRegions(Analysis):
                 if reg:
                     unit = last.get(desc, desc)
                     pending.append(PendingMark(
-                        Mark("region_increment", {"unit": unit, "steps": -reg,
+                        Mark(MarkKind.REGION_INCREMENT, {"unit": unit, "steps": -reg,
                                                   "from_region": reg, "to_region": 0,
                                                   "axis_steps": _axis_delta(
                                                       axes.get(desc, ()), vec.get(desc, ()),
@@ -167,7 +168,7 @@ class RegionIncrementRegions(Analysis):
                                policy=EARLIEST)))
                     for m in _short_members(prog, unit):
                         pending.append(PendingMark(
-                            Mark("descriptor_enable",
+                            Mark(MarkKind.DESCRIPTOR_ENABLE,
                                  {"unit": unit, "member": m, "enabled": True}),
                             Region(blk.label, after=prev.get(desc), before=BLOCK_EXIT,
                                    policy=EARLIEST)))
@@ -189,7 +190,7 @@ def walk_violations(prog):
     for blk in prog.blocks.values():
         at = {}
         for node in blk.body:
-            if isinstance(node, Mark) and node.kind == "region_increment":
+            if isinstance(node, Mark) and node.kind == MarkKind.REGION_INCREMENT:
                 a = node.at if isinstance(node.at, Mapping) else {}
                 u = _canonical_unit(prog, a.get("unit") or ())
                 at[u] = at.get(u, 0) + int(a.get("steps", 0))
@@ -234,7 +235,7 @@ def _enable_violations(blk) -> list:
     downstream can catch it."""
     off = {}
     for node in blk.body:
-        if isinstance(node, Mark) and node.kind == "descriptor_enable":
+        if isinstance(node, Mark) and node.kind == MarkKind.DESCRIPTOR_ENABLE:
             a = node.at if isinstance(node.at, Mapping) else {}
             key = (a.get("unit"), a.get("member"))
             off[key] = not a.get("enabled")

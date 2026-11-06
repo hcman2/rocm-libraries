@@ -6,6 +6,7 @@ RecordUnemittedPass -- count what the model-only blocks are carrying away, LAST.
 
 from __future__ import annotations
 
+from ..kinds import MarkKind
 from ..nodes import Mark
 from .base import Pass
 
@@ -18,7 +19,7 @@ class RecordUnemittedPass(Pass):
         if not model_only:
             return
         dropped = sum(1 for b in model_only for n in b.body
-                      if isinstance(n, Mark) and n.kind != "phase_boundary")
+                      if isinstance(n, Mark) and n.kind != MarkKind.PHASE_BOUNDARY)
         rec = (prog.meta.get("short_loop") or {}).get("model_only")
         if rec is None:
             raise RuntimeError(

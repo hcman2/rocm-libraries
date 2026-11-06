@@ -7,6 +7,7 @@ dataflow analysis over the GIR CFG.
 
 from __future__ import annotations
 
+from ..kinds import MarkKind, MoveOp
 from ..nodes import Move, Mark, CondGoto, Goto
 from ..nodes import (copy_unit, descriptor_unit, first_shared_ref, read_operand, Region,
                      PendingMark, BLOCK_ENTRY, BLOCK_EXIT, EARLIEST, MIDPOINT)
@@ -28,11 +29,11 @@ def _hop_access(prog, inst, hop):
  so a copy's identity is the descriptor, not the members this particular movement carries."""
     if not isinstance(inst, Move):
         return None
-    if hop == "ds_load":
+    if hop == MoveOp.DS_LOAD:
         op = read_operand(inst)
         if op is not None:
             return (op, first_shared_ref(inst.srcs))
-    elif hop == "tensor_load":
+    elif hop == MoveOp.TENSOR_LOAD:
         members, refs = copy_unit(inst)
         if members is not None:
             return (descriptor_unit(prog, members), refs[0])
@@ -61,7 +62,7 @@ def _requirements(prog, blk, hop, unit, ring):
     for inst in blk.body:
         # A `buffer_pin` is a requirement with no access behind it: a conditionally-executed
         # successor uses the pointer, so the swap that serves it belongs on the common path.
-        if isinstance(inst, Mark) and inst.kind == "buffer_pin":
+        if isinstance(inst, Mark) and inst.kind == MarkKind.BUFFER_PIN:
             if inst.at.get("hop") == hop and tuple(inst.at.get("unit") or ()) == tuple(unit):
                 out.append((inst, int(inst.at["gen"]) % ring))
             continue
@@ -166,7 +167,8 @@ class SwapRegions(Analysis):
                 all_succs[p].append(t)
 
         pending = []
-        for hop in ("ds_load", "tensor_load"):
+        # Payload values stay plain strings: the dump prints them with repr.
+        for hop in (MoveOp.DS_LOAD.value, MoveOp.TENSOR_LOAD.value):
             for unit in _units(prog, hop):
                 pending += self._flow(prog, hop, unit, all_preds, all_succs, back_pairs)
         return pending
@@ -207,10 +209,10 @@ class SwapRegions(Analysis):
                                       prog.entry, ENTRY_GENERATION, modulus=ring)
         # The Mark names the pointer the way its hop names pointers: a read swap belongs to an
         # operand (`operand`), a copy swap to the Phi movement (`unit`, a member tuple).  Carrying
-        key = "operand" if hop == "ds_load" else "unit"
-        return [PendingMark(Mark("swap", {"hop": hop, "gen_from": pl.from_value,
+        key = "operand" if hop == MoveOp.DS_LOAD else "unit"
+        return [PendingMark(Mark(MarkKind.SWAP, {"hop": hop, "gen_from": pl.from_value,
                                           "gen_to": pl.to_value, key: unit,
                                           "steps": (pl.to_value - pl.from_value) % ring}),
                             Region(pl.block, after=pl.after, before=pl.before,
-                                   policy=(MIDPOINT if hop == "ds_load" else EARLIEST)))
+                                   policy=(MIDPOINT if hop == MoveOp.DS_LOAD else EARLIEST)))
                 for pl in solver.solve(on_conflict)]

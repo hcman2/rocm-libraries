@@ -7,6 +7,7 @@ dataflow over the GIR CFG (the same shape as SwapRegions).
 
 from __future__ import annotations
 
+from ..kinds import MarkKind
 from ..nodes import Move, Mark, successor_labels
 from ..nodes import (copy_unit, Region, PendingMark, BLOCK_ENTRY, BLOCK_EXIT, EARLIEST)
 from .value_placement import RequiredValue, ValuePlacementSolver
@@ -114,7 +115,7 @@ class GrIncrementRegions(Analysis):
         nmov = max(1, _n_movements(prog, unit))
         out = []
         for inst in blk.body:
-            if isinstance(inst, Mark) and inst.kind == "chunk_pin":
+            if isinstance(inst, Mark) and inst.kind == MarkKind.CHUNK_PIN:
                 if tuple(inst.at.get("unit") or ()) == tuple(unit):
                     out.append((inst, int(inst.at["chunk"])))
                 continue
@@ -167,7 +168,7 @@ class GrIncrementRegions(Analysis):
 
         solver = ValuePlacementSolver(accesses, all_preds, all_succs, delta,
                                       prog.entry, first, modulus=None)
-        return [PendingMark(Mark("gr_increment", {"unit": unit,
+        return [PendingMark(Mark(MarkKind.GR_INCREMENT, {"unit": unit,
                                                   "chunks": pl.to_value - pl.from_value,
                                                   "to_chunk": pl.to_value}),
                             Region(pl.block, after=pl.after, before=pl.before,

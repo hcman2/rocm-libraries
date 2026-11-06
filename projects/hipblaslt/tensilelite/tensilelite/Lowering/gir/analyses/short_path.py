@@ -10,6 +10,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, replace
 
+from ..kinds import MoveOp
 from ..nodes import FILL_OPS, Move, Mma, Mark
 from ..analysis import Analysis
 
@@ -34,8 +35,8 @@ def _inst_kind(inst):
     if isinstance(inst, Mma):
         return "wmma"
     if isinstance(inst, Move):
-        return inst.op or ("tensor_load" if any(d.tile.space == "shared" for d in inst.dsts)
-                       else "ds_load")
+        return inst.op or (MoveOp.TENSOR_LOAD if any(d.tile.space == "shared" for d in inst.dsts)
+                           else MoveOp.DS_LOAD)
     return None
 
 
@@ -175,7 +176,7 @@ def _trace(prog, labels, entry, step_of, free_axes):
                 continue
             ops, crd = _operands(inst), _coord(inst)
             defs, uses = _defs_uses(inst, entry, free_axes, base)
-            key = None if (k == "tensor_load" or step is None) else (k, step, ops, crd, _groups(inst))
+            key = None if (k == MoveOp.TENSOR_LOAD or step is None) else (k, step, ops, crd, _groups(inst))
             if key is not None:
                 if key in keys:
                     raise RuntimeError(
@@ -188,7 +189,7 @@ def _trace(prog, labels, entry, step_of, free_axes):
                 nodes[key] = (lab, inst)
             else:
                 extras += 1
-            if k == "tensor_load":
+            if k == MoveOp.TENSOR_LOAD:
                 n = copy_seen.get((ops, crd), 0)
                 copy_seen[(ops, crd)] = n + 1
                 value = ("tensor_load", ops, crd, n)

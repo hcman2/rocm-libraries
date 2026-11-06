@@ -57,6 +57,7 @@ from .gir.nodes import (
     Trips,
     covered_coords,
 )
+from .gir.kinds import MarkKind
 from .gir.render import gir_counts, render_gir
 
 
@@ -1370,7 +1371,7 @@ def _finish_pipeline(
         prologue_succs = (false_target,)
     gir.add_block(Block(
         phase="prologue",
-        body=[Mark("phase_boundary", {"phase": "prologue"}), *prologue],
+        body=[Mark(MarkKind.PHASE_BOUNDARY, {"phase": "prologue"}), *prologue],
         term=prologue_term,
         succs=prologue_succs,
     ))
@@ -1419,7 +1420,7 @@ def _finish_pipeline(
                 for gen in gens.values()
             ] if last else [],
             edge_xfers=edge_xfers,
-            body=[Mark("phase_boundary", {"phase": label}), *body],
+            body=[Mark(MarkKind.PHASE_BOUNDARY, {"phase": label}), *body],
             term=term,
             gen_rel=index,
             chunk_base=index,
@@ -1441,7 +1442,7 @@ def _finish_pipeline(
             phis=[
                 GenPhi(gen) for gen in gens.values()
             ] if index == 0 and copy_count > 1 else [],
-            body=[Mark("phase_boundary", {"phase": label}), *body],
+            body=[Mark(MarkKind.PHASE_BOUNDARY, {"phase": label}), *body],
             term=Goto(target),
             gen_rel=-len(drain_labels) + index,
             chunk_base=copy_count + index,
@@ -1468,7 +1469,7 @@ def _finish_pipeline(
             preds=("prologue",)
             if index == 0 else (short_labels[index - 1],),
             succs=(target,),
-            body=[Mark("phase_boundary", {"phase": label}), *body],
+            body=[Mark(MarkKind.PHASE_BOUNDARY, {"phase": label}), *body],
             term=Goto(target),
             chunk_base=index,
             model_only=True,

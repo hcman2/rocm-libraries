@@ -166,33 +166,8 @@ WmmaPayload = _view(
      "unitMXB", "srcs", "source_issues"))
 
 
-_MARK_PAYLOAD = {
-    MarkKind.PHASE_BOUNDARY: PhaseBoundaryPayload,
-    MarkKind.SWAP: SwapPayload,
-    MarkKind.GR_INCREMENT: GrIncrementPayload,
-    MarkKind.REGION_INCREMENT: RegionIncrementPayload,
-    MarkKind.DESCRIPTOR_ENABLE: DescriptorEnablePayload,
-    MarkKind.GL2_PREFETCH: Gl2PrefetchPayload,
-    MarkKind.CHUNK_PIN: ChunkPinPayload,
-    MarkKind.BUFFER_PIN: BufferPinPayload,
-}
-
-_EMIT_PAYLOAD = {
-    EmitKind.DS_LOAD: ReadPayload,
-    EmitKind.GLOBAL_LOAD: ReadPayload,
-    EmitKind.TENSOR_LOAD: CopyPayload,
-    EmitKind.WMMA: WmmaPayload,
-    EmitKind.SWAP: SwapPayload,
-    EmitKind.GR_INC: GrIncrementPayload,
-    EmitKind.REGION_INC: RegionIncrementPayload,
-    EmitKind.DESC_ENABLE: DescriptorEnablePayload,
-    EmitKind.GL2_PREFETCH: Gl2PrefetchPayload,
-}
-
-
-def payload_for(kind, data):
-    """Wrap ``data`` in the frozen payload type for ``kind``, preserving key order."""
-    cls = _MARK_PAYLOAD.get(kind) or _EMIT_PAYLOAD.get(kind) or Payload
+def freeze_payload(cls, data):
+    """Wrap ``data`` in the frozen payload type ``cls``, preserving key order."""
     if type(data) is cls:
         return data
     pairs = data._pairs if isinstance(data, Payload) else tuple(

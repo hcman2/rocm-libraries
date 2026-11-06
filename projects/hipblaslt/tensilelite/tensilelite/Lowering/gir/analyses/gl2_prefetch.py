@@ -6,6 +6,7 @@ Gl2PrefetchRegions -- WHERE the GL2 cache prefetch goes, once per summation chun
 
 from __future__ import annotations
 
+from ..kinds import MarkKind
 from ..nodes import Mark, Move
 from ..nodes import Region, PendingMark, BLOCK_ENTRY, BLOCK_EXIT, MIDPOINT
 from ..analysis import Analysis
@@ -35,7 +36,7 @@ class Gl2PrefetchRegions(Analysis):
             if not self._is_steady(name):
                 continue
             out.append(PendingMark(
-                mark=Mark("gl2_prefetch", {"depth": depth, "block": name}),
+                mark=Mark(MarkKind.GL2_PREFETCH, {"depth": depth, "block": name}),
                 region=Region(name, after=BLOCK_ENTRY, before=self._first_fetch(block),
                               policy=MIDPOINT)))
         return out

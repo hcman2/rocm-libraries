@@ -7,6 +7,7 @@ own block, so the branch point is in the CFG rather than implied.
 
 from __future__ import annotations
 
+from ..kinds import MarkKind, MoveOp
 from ..nodes import (Block, Bound, CondGoto, Goto, Mark, Move, Pred, copy_unit,
                      descriptor_unit)
 from .base import Pass
@@ -69,8 +70,8 @@ class SplitPrefetchGuardPass(Pass):
         descs = list(dict.fromkeys(descriptor_unit(prog, copy_unit(i)[0]) for i in guarded))
 
         def _pins():
-            return ([Mark("chunk_pin", {"unit": d, "chunk": gen}) for d in descs] +
-                    [Mark("buffer_pin", {"hop": "tensor_load", "unit": d, "gen": gen}) for d in descs])
+            return ([Mark(MarkKind.CHUNK_PIN, {"unit": d, "chunk": gen}) for d in descs] +
+                    [Mark(MarkKind.BUFFER_PIN, {"hop": MoveOp.TENSOR_LOAD.value, "unit": d, "gen": gen}) for d in descs])
 
         head, rest = head + _pins(), _pins() + rest
 

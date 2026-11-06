@@ -12,7 +12,8 @@ from .gir.analysis import AnalysisManager
 from .gir.analyses.reg_band import RegBandAnalysis
 from .gir.coverage import plan_coverage
 from .gir.nodes import Move
-from .gir.registry import emit_method
+from .gir.kinds import EmitKind, MoveOp
+from .gir.registry import ACTION_SPECS
 from .gir.render import inst_line
 from .gir.schedule import published_schedule
 from .gir_tag import gir_tag
@@ -124,7 +125,7 @@ class GirToRocisa:
             self._actLine = inst_line(act.source) if getattr(act, "source", None) else act.kind
             self._emit_loop_masks(out, act.kind)
             before = len(out.flatitems())
-            method = emit_method(act.kind)
+            method = act.spec.method
             if method is not None:
                 getattr(self, method)(
                     out, phase, act, tpByOperand, internalPointerSwap, cplan, _i)
@@ -178,7 +179,7 @@ class GirToRocisa:
         del cplan, index
         at = act.at
         # A read swap names an operand, a copy swap names the Phi movement.
-        who = at["operand"] if at["hop"] == "ds_load" else at["unit"]
+        who = at["operand"] if at["hop"] == MoveOp.DS_LOAD else at["unit"]
         self._tag_act(out, phase, act)
         self._emit_swap(out, at["hop"], who, tpByOperand, internalPointerSwap)
 
@@ -223,21 +224,20 @@ class GirToRocisa:
         once, so like the scaffold's `tP["isA"]` arm it belongs to the FIRST copy, not each one.
         Emitted outside the action-stamping window -- the masks are scaffold state, not GIR acts.
         """
-        if kind == "tensor_load" and not self._maskedCopy:
+        if kind == EmitKind.TENSOR_LOAD and not self._maskedCopy:
             self._maskedCopy = True
             mask = Module("GIR prefetch silence")
             self.writer.graPrefetchSilenceMask(self.kernel, mask)
             if mask.count():
                 out.add(mask)
-        elif kind == "gr_inc" and not self._maskedInc:
+        elif kind == EmitKind.GR_INC and not self._maskedInc:
             self._maskedInc = True
             mask = self.writer.graIncrementMask(self.kernel, self.tPA, self.tPB)
             if mask is not None and mask.count():
                 out.add(mask)
 
-    #: A `global_load` names no LDS instruction, so it falls through to `Other`.
-    _ACTION_KINDS = {"ds_load": GirActionKind.Ds, "tensor_load": GirActionKind.Tensor,
-                     "wmma": GirActionKind.Wmma}
+    _ACTION_KINDS = {kind: getattr(GirActionKind, spec.stinky)
+                     for kind, spec in ACTION_SPECS.items()}
 
     @staticmethod
     def _drop_mem_tokens(code):
@@ -253,7 +253,7 @@ class GirToRocisa:
         The id, its block anchor, its kind and what it touches are facts ABOUT THE INSTRUCTION,
         so they ride on it rather than in a contract table the consumer joins by id.
         """
-        kind = self._ACTION_KINDS.get(act.kind, GirActionKind.Other)
+        kind = self._ACTION_KINDS[act.kind]
         accesses = [
             {"is_write": access.is_write, "operand": access.operand, "ring": access.ring,
              "gen": access.gen, "gdelta": access.gdelta, "absolute": access.absolute,
@@ -343,7 +343,7 @@ class GirToRocisa:
         their own LDS regions through their own address registers, so `who` is an operand name and
         multi-wave changes nothing here.
         """
-        if hop == "ds_load":
+        if hop == MoveOp.DS_LOAD:
             tP = tpByOperand.get(who)
             if tP is None:
                 return

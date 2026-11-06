@@ -5,29 +5,14 @@ Emit plan -- the PURE half of GIR -> rocisa (L3).
 """
 
 from __future__ import annotations
-from dataclasses import dataclass, replace
+from dataclasses import replace
 
-from .kinds import coerce_emit, payload_for
+from .actions import EmitAction  # noqa: F401  re-exported
+from .kinds import EmitKind, MoveOp
 from .nodes import Move, Mma, Mark
 from .analyses.region_increment import region_of, walk_ref, _flat, _n_regions
 from .nodes import copy_unit, covered_coords, first_shared_ref
-from .registry import MARK_EMIT
-
-
-@dataclass(frozen=True)
-class EmitAction:
-    """One thing L3 must emit: its `kind`, and the `at` payload that kind needs."""
-    kind: str
-    at: dict
-    # Dense, deterministic identity in Program block/action order. ``source`` is the GIR node
-    # that produced this action and is intentionally not serialized by ordinary emitters.
-    action_id: int = -1
-    source: object = None
-
-    def __post_init__(self):
-        kind = coerce_emit(self.kind)
-        object.__setattr__(self, "kind", kind)
-        object.__setattr__(self, "at", payload_for(kind, self.at))
+from .registry import mark_spec
 
 
 def _project(coord, axes, inner_order, extents):
@@ -82,7 +67,7 @@ def _plan_read(prog, inst, dst_reg, red, free, order, ext, actions):
             for cd in ({ax: (int(v) if v is not None else 0) for ax, v in c}
                        for c in covered_coords(dst_reg)))
         unit_indexes = tuple(dst_reg.unit_indexes or (dst_reg.unit_index,))
-        actions.append(EmitAction(inst.op or "ds_load", {
+        actions.append(EmitAction(inst.op or MoveOp.DS_LOAD, {
             "tc": operand, "tile": tile, "k": k, "k_flat": k_flat, "reg_buf": reg_buf,
             # `regions` is THIS OP-CLASS's count, not its movement's: under Phi the movement is keyed
             # `('A','B')` and `_n_regions(prog, ('A',))` would answer 1 for a split fused operand.
@@ -127,7 +112,7 @@ def _plan_move(prog, inst, actions):
         n_reg = _n_regions(prog, members)
         wref = walk_ref(prog, dst_refs)
         reg = region_of(prog, wref) if n_reg > 1 else ()
-        actions.append(EmitAction(inst.op or "tensor_load", {
+        actions.append(EmitAction(inst.op or MoveOp.TENSOR_LOAD, {
             "unit": members, "gen": gen, "regions": n_reg,
             "region": _flat(reg, prog, wref.tile.operand) if reg else None}))
 
@@ -225,7 +210,7 @@ def _plan_mma(prog, inst, actions):
         ref.tile.operand: tuple((axis, coord.get(axis, 0)) for axis in ref.issue_axes)
         for ref in inst.srcs if ref.tile.space == "register"
     }
-    actions.append(EmitAction("wmma", {
+    actions.append(EmitAction(EmitKind.WMMA, {
         "idx0": idx0, "idx1": idx1, "u": u,
         "bufA": bufA, "bufB": bufB, "sizeA": sizeA, "sizeB": sizeB,
         "groupA": groups.get(in0), "groupB": groups.get(in1),
@@ -238,12 +223,16 @@ def _plan_mma(prog, inst, actions):
         "srcs": tuple(srcs), "source_issues": source_issues}))
 
 
-def _plan_mark(inst, actions):
-    """Plan one Mark from the shared kind table. Unmapped kinds emit nothing."""
-    kind = MARK_EMIT.get(inst.kind)
-    if kind is None:
+def _plan_mark(prog, inst, actions):
+    """Plan one Mark from the kind table. Placement-only and unknown kinds emit nothing."""
+    del prog
+    spec = mark_spec(inst.kind)
+    if spec is None or spec.emits is None:
         return
-    actions.append(EmitAction(kind, dict(inst.at)))
+    actions.append(EmitAction(spec.emits, dict(inst.at)))
+
+
+_PLANNERS = {Mma: _plan_mma, Move: _plan_move, Mark: _plan_mark}
 
 
 def _plan_block_raw(prog, phase):
@@ -251,12 +240,9 @@ def _plan_block_raw(prog, phase):
     actions = []
     for inst in blk.body:
         begin = len(actions)
-        if isinstance(inst, Mma):
-            _plan_mma(prog, inst, actions)
-        elif isinstance(inst, Move):
-            _plan_move(prog, inst, actions)
-        elif isinstance(inst, Mark):
-            _plan_mark(inst, actions)
+        planner = _PLANNERS.get(type(inst))
+        if planner is not None:
+            planner(prog, inst, actions)
         for i in range(begin, len(actions)):
             actions[i] = replace(actions[i], source=inst)
     return actions

@@ -11,7 +11,8 @@ analyses use to propose a Mark before a pass places it.
 from __future__ import annotations
 from dataclasses import dataclass, field
 
-from .kinds import MarkKind, MoveOp, coerce_mark, coerce_move, payload_for
+from .kinds import coerce_mark, coerce_move
+from .registry import FILL_OPS, payload_for  # noqa: F401  FILL_OPS is re-exported
 
 
 # ===========================================================================
@@ -73,7 +74,6 @@ class Ref:
 # ===========================================================================
 # 4.3  Move and Mma -- the verbs (unified srcs/dsts; semantics from Tile.operand)
 
-# `FILL_OPS` is "lands in registers", which covers the DirectToVgpr hop that never touches LDS.
 # The hazard each `deps` entry settles.  WAR splits on WHERE the refill lands: a rotation puts it
 # in the next buffer, so the ring already orders it; in-place reuses the same one, so it does not.
 HAZARD_KINDS = (
@@ -83,9 +83,6 @@ HAZARD_KINDS = (
     "inplace-WAR",     # write-after-read into the SAME buffer -- nothing but this edge orders it
 )
 
-MOVE_OPS = tuple(MoveOp)
-FILL_OPS = (MoveOp.DS_LOAD, MoveOp.GLOBAL_LOAD)
-
 
 @dataclass
 class Move:
@@ -93,7 +90,7 @@ class Move:
 
  srcs -- (Ref,) e.g. a global tile.
  dsts -- (Ref,) e.g. a shared tile at a Gen (a tensor_load), or a register (a ds_load).
- op   -- the LoopIR operation lowercased, one of `MOVE_OPS`; it names the INSTRUCTION, not a
+ op   -- the LoopIR operation lowercased, a `MoveOp`; it names the INSTRUCTION, not a
          direction -- which side holds the shared ref says whether LDS is written or read.
  deps -- RAW + WAR edges carried from the LoopIR awaits (kind on each dep, / analysis).
     """
@@ -130,16 +127,13 @@ class Mma:
 
 # ===========================================================================
 # 4.4  Mark -- a semantic point (+ the region-based insertion model)
-MARK_KINDS = tuple(MarkKind)
-
-
 @dataclass
 class Mark:
     """A body element carrying NO data movement or compute -- only a GEMM-semantic FACT at a
     program point for L3 to realize (R-SEMANTIC).  `Mark('swap', {hop, gen_from, gen_to})` is
     the FACT "the read generation changes here", NOT a v_xor.
 
-    kind -- one of MARK_KINDS (native from LoopIR structure, or produced by an analysis).
+    kind -- a `MarkKind` (native from LoopIR structure, or produced by an analysis).
     """
     kind: str
     at:   dict = field(default_factory=dict)

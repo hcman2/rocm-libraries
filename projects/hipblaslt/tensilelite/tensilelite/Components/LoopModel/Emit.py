@@ -5,7 +5,8 @@
 from rocisa.code import Module
 
 from ...Lowering import steady_chain
-from ...Lowering.gir.nodes import FILL_OPS
+from ...Lowering.gir.kinds import EmitKind
+from ...Lowering.gir.registry import FILL_OPS
 from ...Lowering.gir_to_rocisa import GirToRocisa
 
 from .Program import loopModelGirProgram
@@ -57,8 +58,9 @@ def loopModelSteadyPhase(writer, kernel, loopCopy) -> str:
 
 #: The prologue's GLOBAL->SHARED movement, which legacy issues from `setupNewTile`, and the
 #: REGISTER fill, which legacy issues at the prefetch-local point.  One GIR block, two sites.
-PROLOGUE_MOVEMENT = ("tensor_load", "gr_inc", "desc_enable", "region_inc", "gl2_prefetch")
-PROLOGUE_FILL = FILL_OPS + ("wmma", "swap")
+PROLOGUE_MOVEMENT = (EmitKind.TENSOR_LOAD, EmitKind.GR_INC, EmitKind.DESC_ENABLE,
+                     EmitKind.REGION_INC, EmitKind.GL2_PREFETCH)
+PROLOGUE_FILL = FILL_OPS + (EmitKind.WMMA, EmitKind.SWAP)
 
 
 def _prologueGuardLadder(writer, kernel, tensorParametersA, tensorParametersB, module):

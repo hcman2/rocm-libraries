@@ -11,6 +11,7 @@ from __future__ import annotations
 
 from .analyses.cfg import successors
 from .emit_plan import plan_block
+from .kinds import EmitKind
 from .nodes import FILL_OPS, Mark, Mma, Move
 from .render import _mma_line, _move_line
 
@@ -102,7 +103,7 @@ def _walk(prog, phase, regs, viol, acts=None):
                         % (_event(phase, i, act), prev[2], name, sorted(unread),
                            sorted(sources)))
                 regs.slots[name] = (sources, frozenset(), _event(phase, i, act))
-        elif act.kind == "wmma":
+        elif act.kind == EmitKind.WMMA:
             # EVERY REGISTER SOURCE, READ OFF THE ACT (`srcs`) -- not reconstructed here.
             # `emit_plan._plan_mma` already DERIVES which operand each source is and which grid
             for op, grp, buf, unit_index, logical_index in at.get("srcs", ()):
@@ -258,7 +259,7 @@ def check_source_coverage(prog, phase="steady", acts=None) -> list:
     acts = plan_block(prog, phase) if acts is None else list(acts)
     want = {}
     for act in acts:
-        if act.kind != "wmma":
+        if act.kind != EmitKind.WMMA:
             continue
         for which, op in ((0, in0), (1, in1)):
             if op is None:
@@ -336,7 +337,7 @@ def check_refill_splits_consumers(prog, phase="steady", acts=None) -> list:
                 slot = (at["tc"], at.get("group"), at["reg_buf"], unit)
                 order.setdefault(slot, []).append(
                     (i, "refill" if at.get("advance") else "fill", None, act))
-        elif act.kind == "wmma":
+        elif act.kind == EmitKind.WMMA:
             for op, grp, buf, unit_index, _logical_index in at.get("srcs", ()) or ():
                 issue = tuple(at.get("source_issues", {}).get(op, ()))
                 value = (_logical_index, at.get("u"), issue)
@@ -477,7 +478,7 @@ def _walk_values(prog, phases, held, viol=None):
                 for unit in (at.get("unit_indexes") or (at.get("unit_index", 0),)):
                     held[(at["tc"], at.get("group"), at["reg_buf"], unit)] = (
                         values, _event(phase, position, act))
-            elif act.kind == "wmma" and viol is not None:
+            elif act.kind == EmitKind.WMMA and viol is not None:
                 for op, group, buf, unit, index in at.get("srcs", ()) or ():
                     record = held.get((op, group, buf, unit))
                     want = (index, at.get("u"))

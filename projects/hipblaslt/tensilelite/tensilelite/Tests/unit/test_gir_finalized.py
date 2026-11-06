@@ -6,7 +6,8 @@ from tensilelite.Lowering.gir.emit_plan import EmitAction, plan_program
 from tensilelite.Lowering.gir.frame_contract import build_contract
 from tensilelite.Lowering.gir.kinds import EmitKind, MarkKind, MoveOp
 from tensilelite.Lowering.gir.nodes import Mark, Move, Tile, Ref
-from tensilelite.Lowering.gir.registry import EMIT_METHOD, MARK_EMIT, MARK_SCHEMA
+from tensilelite.Lowering.gir import actions
+from tensilelite.Lowering.gir.registry import ACTION_SPECS, MARK_SPECS
 from tensilelite.Lowering.gir.render import inst_line
 from tensilelite.Lowering.gir.schedule import finalize
 from tensilelite.LoopModel.decoder import decode_theta
@@ -56,14 +57,49 @@ def test_kinds_render_as_the_same_strings():
 
 
 def test_registry_covers_every_mark_and_emitted_kind():
-    assert set(MARK_SCHEMA) == set(MarkKind)
-    assert set(MARK_EMIT) == set(MarkKind)
-    emitted = {kind for kind in MARK_EMIT.values() if kind is not None}
-    assert emitted <= set(EMIT_METHOD)
-    for kind in (EmitKind.DS_LOAD, EmitKind.GLOBAL_LOAD, EmitKind.TENSOR_LOAD,
-                 EmitKind.WMMA, EmitKind.SWAP, EmitKind.GR_INC, EmitKind.REGION_INC,
-                 EmitKind.DESC_ENABLE, EmitKind.GL2_PREFETCH):
-        assert EMIT_METHOD[kind]
+    from tensilelite.Lowering.gir_to_rocisa import GirToRocisa
+
+    assert set(MARK_SPECS) == set(MarkKind)
+    assert set(ACTION_SPECS) == set(EmitKind)
+    for spec in MARK_SPECS.values():
+        assert spec.emits is None or spec.emits in ACTION_SPECS
+    for kind, spec in ACTION_SPECS.items():
+        assert issubclass(spec.action, actions.EmitAction)
+        assert spec.method is None or callable(getattr(GirToRocisa, spec.method)), kind
+    silent = {kind for kind, spec in ACTION_SPECS.items() if spec.method is None}
+    assert silent == {EmitKind.STORE}
+
+
+def test_actions_are_typed_by_kind():
+    read = EmitAction("ds_load", {"tc": "A"})
+    assert type(read) is actions.ReadAction
+    assert type(EmitAction(kind="global_load", at={})) is actions.ReadAction
+    assert type(EmitAction(EmitKind.WMMA, {})) is actions.WmmaAction
+    assert type(EmitAction("swap", {})) is actions.SwapAction
+    assert type(EmitAction("tensor_load", {})) is actions.CopyAction
+    from dataclasses import replace
+    assert type(replace(read, action_id=3)) is actions.ReadAction
+    assert read.spec is ACTION_SPECS[EmitKind.DS_LOAD]
+    try:
+        actions.WmmaAction("ds_load", {})
+    except TypeError:
+        pass
+    else:
+        raise AssertionError("a wmma action accepted a read kind")
+    try:
+        EmitAction("nonsense", {})
+    except KeyError:
+        pass
+    else:
+        raise AssertionError("an unknown action kind was accepted")
+
+
+def test_every_action_declares_its_storage():
+    for kind, spec in ACTION_SPECS.items():
+        assert isinstance(spec.touches_shared, bool), kind
+    shared = {kind for kind, spec in ACTION_SPECS.items() if spec.touches_shared}
+    assert shared == {EmitKind.DS_LOAD, EmitKind.GLOBAL_LOAD, EmitKind.TENSOR_LOAD,
+                      EmitKind.STORE}
 
 
 def test_published_schedule_matches_the_separate_derivations():

@@ -6,8 +6,9 @@ verify_gir -- the GIR well-formedness verifier.
 
 from __future__ import annotations
 
-from .nodes import Move, Mma, Mark, MARK_KINDS, terminator_targets
-from .registry import MARK_SCHEMA, mark_verifier, register_mark_verifier
+from .kinds import MarkKind
+from .nodes import Move, Mma, Mark, terminator_targets
+from .registry import mark_spec
 from .analysis import AnalysisManager
 from .analyses import BackEdges
 from .analyses.loop_shape import LoopShape, reduction_coverage_violations
@@ -15,21 +16,6 @@ from .analyses.frame_hazards import FrameHazards, _disjoint_storage
 from .analyses.reg_band import RegBandAnalysis
 from .analyses.lds_buffers import LdsBufferIds, shared_refs
 from .analyses.region_increment import walk_violations
-
-
-# The schema lives in the shared handler registry. A swap additionally names the
-# pointer, and WHICH name depends on the hop: a read swap moves an operand's
-# LocalReadAddr (`operand`), a copy swap moves a Phi movement's descriptor.
-def _verify_swap(inst, blk, have):
-    key = "operand" if inst.at.get("hop") == "ds_load" else "unit"
-    if key not in have:
-        raise RuntimeError(
-            f"G-MARK: Mark('swap', hop={inst.at.get('hop')!r}) in {blk.label} must name "
-            f"its pointer with '{key}' (a read swap names an operand, a copy swap names "
-            f"the Phi movement's member tuple); got fields {sorted(have)}")
-
-
-register_mark_verifier("swap", _verify_swap)
 
 
 def _all_insts(prog):
@@ -203,7 +189,7 @@ def _check_emit(prog):
     for rec in (prog.meta.get("short_loop") or {}).get("model_only", {}),:
         counted += rec.get("marks_dropped", 0) if rec else 0
     actual = sum(1 for blk in prog.blocks.values() if blk.model_only
-                 for n in blk.body if isinstance(n, Mark) and n.kind != "phase_boundary")
+                 for n in blk.body if isinstance(n, Mark) and n.kind != MarkKind.PHASE_BOUNDARY)
     declared_blocks = {b.label for b in prog.blocks.values() if b.model_only}
     if declared_blocks and not (prog.meta.get("short_loop") or {}).get("model_only"):
         raise RuntimeError(
@@ -279,17 +265,16 @@ def _check_marks(prog):
     for blk, inst in _all_insts(prog):
         if not isinstance(inst, Mark):
             continue
-        if inst.kind not in MARK_KINDS:
+        spec = mark_spec(inst.kind)
+        if spec is None:
             raise RuntimeError(f"G-MARK: unknown Mark kind '{inst.kind}' in {blk.label}")
-        need = MARK_SCHEMA[inst.kind]
         have = set((inst.at or {}).keys())
-        missing = [k for k in need if k not in have]
+        missing = [k for k in spec.fields if k not in have]
         if missing:
             raise RuntimeError(
                 f"G-MARK: Mark('{inst.kind}') in {blk.label} missing fields {missing}")
-        extra = mark_verifier(inst.kind)
-        if extra is not None:
-            extra(inst, blk, have)
+        if spec.verify is not None:
+            spec.verify(inst, blk, have)
 
 
 def verify_gir(prog, expect_steady_loops="one"):
