@@ -9,7 +9,6 @@
 #include "stinkytofu/analysis/AnalysisRegistration.hpp"
 #include "stinkytofu/analysis/asm/GirFrameAnalysis.hpp"
 #include "stinkytofu/transforms/asm/GirFencePlacementPass.hpp"
-#include "stinkytofu/transforms/asm/GirWaitCntInsertionPass.hpp"
 #include "stinkytofu/transforms/asm/StinkyBuildImplicitDependencyPass.hpp"
 #include "stinkytofu/transforms/asm/StinkyDAGSchedulerPass.hpp"
 #include "stinkytofu/transforms/asm/StinkyWaitCntInsertionPass.hpp"
@@ -161,7 +160,7 @@ TEST(GirFrameAnalysisTest, TensorRawMarkerMovesBeforeOneWmmaQueue) {
     EXPECT_FALSE(placements.markers.contains(read));
 
     createGirFencePlacementPass()->run(function, context, analyses);
-    createGirWaitCntInsertionPass()->run(function, context, analyses);
+    insertGirFrameWaits(function, context, analyses);
     std::vector<StinkyInstruction*> instructions;
     for (IRBase& node : *block)
         if (auto* inst = dyn_cast<StinkyInstruction>(&node)) instructions.push_back(inst);
@@ -278,7 +277,7 @@ TEST(GirFrameAnalysisTest, AgentRelativeReadWaitsForEveryPhysicalRegionProducer)
     context.setGemmTileConfig(function.getGemmTileConfig());
     AnalysisManager analyses;
     registerAllAnalyses(analyses);
-    createGirWaitCntInsertionPass()->run(function, context, analyses);
+    insertGirFrameWaits(function, context, analyses);
 
     StinkyInstruction* beforeFence = nullptr;
     for (IRBase& node : *drain) {
@@ -332,7 +331,7 @@ TEST(GirFrameAnalysisTest, LateRawFenceRanksSuccessorRegionAtEndpoint) {
     ASSERT_NE(successorRaw, hazards.hazards.end());
 
     createGirFencePlacementPass()->run(function, context, analyses);
-    createGirWaitCntInsertionPass()->run(function, context, analyses);
+    insertGirFrameWaits(function, context, analyses);
 
     const auto waitsIn = [](BasicBlock* block) {
         std::vector<int> waits;
@@ -407,7 +406,7 @@ TEST(GirFrameAnalysisTest, UnwaitedTensorRawFenceIsRemoved) {
     EXPECT_EQ(counts(first), (std::pair{1, 0}));
     EXPECT_EQ(counts(merge), (std::pair{0, 0}));
 
-    createGirWaitCntInsertionPass()->run(function, context, analyses);
+    insertGirFrameWaits(function, context, analyses);
     EXPECT_EQ(counts(entry), (std::pair{0, 0}));
     EXPECT_EQ(counts(first), (std::pair{1, 1}));
     EXPECT_EQ(counts(merge), (std::pair{0, 0}));
@@ -448,7 +447,7 @@ TEST(GirFrameAnalysisTest, UnwaitedRawOwnershipDropsFromWarFence) {
     AnalysisManager analyses;
     registerAllAnalyses(analyses);
     createGirFencePlacementPass()->run(function, context, analyses);
-    createGirWaitCntInsertionPass()->run(function, context, analyses);
+    insertGirFrameWaits(function, context, analyses);
 
     std::vector<std::string> stamps;
     int tensorWaits = 0;
@@ -492,7 +491,7 @@ TEST(GirFrameAnalysisTest, EarlyRawFenceDoesNotStealSameTripWarDeadline) {
     AnalysisManager analyses;
     registerAllAnalyses(analyses);
     createGirFencePlacementPass()->run(function, context, analyses);
-    createGirWaitCntInsertionPass()->run(function, context, analyses);
+    insertGirFrameWaits(function, context, analyses);
 
     std::vector<StinkyInstruction*> instructions;
     for (IRBase& node : *block)
@@ -550,7 +549,7 @@ TEST(GirFrameAnalysisTest, RawFenceReusesWarWhenDscntIsUnchanged) {
     AnalysisManager analyses;
     registerAllAnalyses(analyses);
     createGirFencePlacementPass()->run(function, context, analyses);
-    createGirWaitCntInsertionPass()->run(function, context, analyses);
+    insertGirFrameWaits(function, context, analyses);
 
     std::vector<std::string> stamps;
     for (IRBase& node : *block) {
@@ -589,7 +588,7 @@ TEST(GirFrameAnalysisTest, EarlyRawFenceDoesNotOwnAnOlderWar) {
     AnalysisManager analyses;
     registerAllAnalyses(analyses);
     createGirFencePlacementPass()->run(function, context, analyses);
-    createGirWaitCntInsertionPass()->run(function, context, analyses);
+    insertGirFrameWaits(function, context, analyses);
 
     std::vector<std::string> stamps;
     for (IRBase& node : *block) {
@@ -657,7 +656,7 @@ TEST(GirFrameAnalysisTest, UnwaitedRawRemovalReclosesWarCut) {
     AnalysisManager analyses;
     registerAllAnalyses(analyses);
     createGirFencePlacementPass()->run(function, context, analyses);
-    createGirWaitCntInsertionPass()->run(function, context, analyses);
+    insertGirFrameWaits(function, context, analyses);
 
     const auto stampsIn = [](BasicBlock* block) {
         std::vector<std::string> result;
@@ -710,7 +709,7 @@ TEST(GirFrameAnalysisTest, CoLocatedRawsShareOneFence) {
     AnalysisManager analyses;
     registerAllAnalyses(analyses);
     createGirFencePlacementPass()->run(function, context, analyses);
-    createGirWaitCntInsertionPass()->run(function, context, analyses);
+    insertGirFrameWaits(function, context, analyses);
 
     int signals = 0;
     int tensorWaits = 0;
@@ -853,7 +852,7 @@ TEST(GirFrameAnalysisTest, WarWaitRetainsYoungerReadsOfDifferentStorage) {
     AnalysisManager analyses;
     registerAllAnalyses(analyses);
     createGirFencePlacementPass()->run(function, context, analyses);
-    createGirWaitCntInsertionPass()->run(function, context, analyses);
+    insertGirFrameWaits(function, context, analyses);
 
     std::vector<StinkyInstruction*> instructions;
     for (IRBase& node : *block)
@@ -991,7 +990,7 @@ TEST(GirFrameAnalysisTest, FrameWaitPassInsertsTensorWaitAtTaggedConsumer) {
     context.setGemmTileConfig(function.getGemmTileConfig());
     AnalysisManager analyses;
     registerAllAnalyses(analyses);
-    createGirWaitCntInsertionPass()->run(function, context, analyses);
+    insertGirFrameWaits(function, context, analyses);
 
     StinkyInstruction* beforeRead = nullptr;
     for (IRBase& node : *loop) {
@@ -1029,7 +1028,7 @@ TEST(GirFrameAnalysisTest, JoinIgnoresAbsentPathWithoutInventingPromotion) {
     context.setGemmTileConfig(function.getGemmTileConfig());
     AnalysisManager analyses;
     registerAllAnalyses(analyses);
-    createGirWaitCntInsertionPass()->run(function, context, analyses);
+    insertGirFrameWaits(function, context, analyses);
 
     bool producingWait = false;
     for (IRBase& node : *producing) {
@@ -1061,7 +1060,7 @@ TEST(GirFrameAnalysisTest, FrameWarRetiresVacatingDsRead) {
     context.setGemmTileConfig(function.getGemmTileConfig());
     AnalysisManager analyses;
     registerAllAnalyses(analyses);
-    createGirWaitCntInsertionPass()->run(function, context, analyses);
+    insertGirFrameWaits(function, context, analyses);
 
     StinkyInstruction* beforeCopy = nullptr;
     for (IRBase& node : *block) {
@@ -1111,7 +1110,7 @@ TEST(GirFrameAnalysisTest, FrameWaitReconcilesGenericDscntStream) {
     context.setGemmTileConfig(function.getGemmTileConfig());
     AnalysisManager analyses;
     registerAllAnalyses(analyses);
-    createGirWaitCntInsertionPass()->run(function, context, analyses);
+    insertGirFrameWaits(function, context, analyses);
 
     std::vector<int> waits;
     for (IRBase& node : *block) {
@@ -1146,7 +1145,7 @@ std::vector<std::pair<unsigned, int>> warWaitStream(bool merged) {
     options.girFrameWaits = merged;
     analyses.invalidate(
         function, createStinkyWaitCntInsertionPass(options)->run(function, context, analyses));
-    if (!merged) createGirWaitCntInsertionPass()->run(function, context, analyses);
+    if (!merged) insertGirFrameWaits(function, context, analyses);
 
     std::vector<std::pair<unsigned, int>> waits;
     for (IRBase& node : *block) {
@@ -1198,7 +1197,7 @@ TEST(GirFrameAnalysisTest, SameTripRingAliasWarDrainsBeforeOverwrite) {
         return inst && isBarrier(*inst);
     }));
 
-    createGirWaitCntInsertionPass()->run(function, context, analyses);
+    insertGirFrameWaits(function, context, analyses);
     StinkyInstruction* beforeCopy = nullptr;
     for (IRBase& node : *loop) {
         auto* inst = dyn_cast<StinkyInstruction>(&node);
@@ -1242,7 +1241,7 @@ TEST(GirFrameAnalysisTest, CrossAgentRingAliasWarDrainsBeforeBarrier) {
     createGirFencePlacementPass()->run(function, context, analyses);
     createStinkyBuildImplicitDependencyPass()->run(function, context, analyses);
     createStinkyDAGSchedulerPass()->run(function, context, analyses);
-    createGirWaitCntInsertionPass()->run(function, context, analyses);
+    insertGirFrameWaits(function, context, analyses);
 
     std::vector<StinkyInstruction*> instructions;
     for (IRBase& node : *loop)
@@ -1330,7 +1329,7 @@ TEST(GirFrameAnalysisTest, LoopCarriedWarDrainsAtPredecessorTailFence) {
     ASSERT_NE(war, hazards.hazards.end());
     EXPECT_EQ(war->gap, 1);
 
-    createGirWaitCntInsertionPass()->run(function, context, analyses);
+    insertGirFrameWaits(function, context, analyses);
 
     const SWaitCntData* dsWait = nullptr;
     for (IRBase& node : *loop) {
@@ -1373,7 +1372,7 @@ TEST(GirFrameAnalysisTest, EntryAndBackedgeWarUseDifferentFences) {
     context.setGemmTileConfig(function.getGemmTileConfig());
     AnalysisManager analyses;
     registerAllAnalyses(analyses);
-    createGirWaitCntInsertionPass()->run(function, context, analyses);
+    insertGirFrameWaits(function, context, analyses);
     const auto drainBefore = [](BasicBlock* block, const StinkyInstruction* anchor) {
         const SWaitCntData* result = nullptr;
         for (IRBase& node : *block) {
@@ -1437,7 +1436,7 @@ TEST(GirFrameAnalysisTest, CrossAgentWaitAnchorsAtVirtualFence) {
     context.setGemmTileConfig(function.getGemmTileConfig());
     AnalysisManager analyses;
     registerAllAnalyses(analyses);
-    createGirWaitCntInsertionPass()->run(function, context, analyses);
+    insertGirFrameWaits(function, context, analyses);
 
     StinkyInstruction* beforeFence = nullptr;
     StinkyInstruction* beforeRead = nullptr;
@@ -1481,7 +1480,7 @@ TEST(GirFrameAnalysisTest, SingleWaveUsesWaitWithoutWorkgroupBarrier) {
         return inst && isBarrier(*inst);
     }));
 
-    createGirWaitCntInsertionPass()->run(function, context, analyses);
+    insertGirFrameWaits(function, context, analyses);
     StinkyInstruction* beforeRead = nullptr;
     for (IRBase& node : *block) {
         auto* inst = dyn_cast<StinkyInstruction>(&node);
@@ -1527,7 +1526,7 @@ TEST(GirFrameAnalysisTest, ClonedFenceActionAnchorsWaitOnEachCfgPath) {
     context.setGemmTileConfig(function.getGemmTileConfig());
     AnalysisManager analyses;
     registerAllAnalyses(analyses);
-    createGirWaitCntInsertionPass()->run(function, context, analyses);
+    insertGirFrameWaits(function, context, analyses);
 
     auto waitImmediatelyBefore = [](BasicBlock* block, StinkyInstruction* anchor) {
         StinkyInstruction* prior = nullptr;
@@ -1584,7 +1583,7 @@ TEST(GirFrameAnalysisTest, EntrancePhiSurvivesUntaggedScaffoldBlocks) {
 
     PassContext context;
     context.setGemmTileConfig(function.getGemmTileConfig());
-    createGirWaitCntInsertionPass()->run(function, context, analyses);
+    insertGirFrameWaits(function, context, analyses);
     StinkyInstruction* beforeRead = nullptr;
     for (IRBase& node : *drain) {
         auto* inst = dyn_cast<StinkyInstruction>(&node);
@@ -1687,7 +1686,7 @@ TEST(GirFrameAnalysisTest, TripDomainExcludesShortPrefetchPathFromSteadyWaitRank
     context.setGemmTileConfig(function.getGemmTileConfig());
     AnalysisManager analyses;
     registerAllAnalyses(analyses);
-    createGirWaitCntInsertionPass()->run(function, context, analyses);
+    insertGirFrameWaits(function, context, analyses);
 
     StinkyInstruction* beforeConsumer = nullptr;
     for (IRBase& node : *loop) {
@@ -1736,7 +1735,7 @@ TEST(GirFrameAnalysisTest, PredecessorPromotionRerunsDownstreamCounterflow) {
     context.setGemmTileConfig(function.getGemmTileConfig());
     AnalysisManager analyses;
     registerAllAnalyses(analyses);
-    createGirWaitCntInsertionPass()->run(function, context, analyses);
+    insertGirFrameWaits(function, context, analyses);
 
     const SWaitTensorCntData* shortWait = nullptr;
     for (IRBase& node : *shortPath) {
