@@ -185,6 +185,27 @@ def test_mxsa_slot_can_make_the_complete_component_tight(
     assert _lds_configuration(auto) == _lds_configuration(sol if auto_interleave else off)
 
 
+def test_one_sided_mxsa_folds_four_waves_onto_two_m_halves(derive):
+    """MXBlockB=0 keeps two MXSA slots. Four waves fold with WaveIdx >> 1 and mt/2."""
+    from tensilelite.Components.TDMFuse import mxsaSegmentComponents, tdmWaveComponents
+
+    sol, out = derive(1, mi=[16, 16, 128, 1, 1, 1, 4, 2, 2],
+                      VectorWidthA=1, VectorWidthB=4, DepthU=512, HalfPLR=0,
+                      TDMFuse=0, TDMInst=3,
+                      ProblemType={"MXBlockA": 32, "MXBlockB": 0})
+    assert sol["Valid"], out
+    assert sol["NumWaves"] == 4 and sol["MIWaveGroup"] == [2, 2]
+    assert sol["DepthU"] == 512 and sol["MatrixInstK"] == 128
+    o = sol["LDSSegInterleaveOffsets"]
+    assert o["mxsSplitA"] is True
+    assert o["mxsaHalfBytes"] > 0 and o["mxsaStrideBytes"] > 0
+    assert o["ldsBaseMXSA"] + o["mxsaStrideBytes"] + o["mxsaHalfBytes"] <= sol["LdsNumBytes"]
+    # The partition stays four K-components; only the mxsSplitA address path folds.
+    assert tdmWaveComponents(sol._state, "MXSA") == (4, 0, 0)
+    assert mxsaSegmentComponents(sol._state) == (2, 1, 0)
+    assert sol["MacroTile0"] // 2 == sol["MacroTile0"] // mxsaSegmentComponents(sol._state)[0]
+
+
 @pytest.mark.parametrize("overrides", [
     {"MIWaveGroup": [4, 1]}, {"TDMFuse": 1}, {"TDMSplit": True},
     {"MXScaleFormat": "NoSwizzle"}, {"DirectToVgprMXSA": True},

@@ -475,6 +475,21 @@ def tdmWaveComponents(ks, tc):
         % (tc, waves, numComp, numComp - 1, tuple(w >> 1 for w in waves)))
 
 
+def mxsaSegmentComponents(kernel):
+    """Two M halves when mxsSplitA is on. One-sided MXSA has four waves;
+    fold them the same way as the two-sided shift. Each half keeps every K group.
+    WaveIdx 0,1 -> half 0; WaveIdx 2,3 -> half 1.
+    """
+    # Imported here: MxScaleLayout does not import this module, but the fold
+    # reads mxsSplitA, which is decided after tdmWaveComponents.
+    from ..Common.MxScaleLayout import mxSegmentSplit
+    numComp, shift, offset = tdmWaveComponents(kernel, "MXSA")
+    if (mxSegmentSplit(kernel, "MXSA") and numComp == 4
+            and shift == 0 and offset == 0):
+        return 2, 1, 0
+    return numComp, shift, offset
+
+
 def tdmRidesEveryWave(ks, tc):
     """True when wave-separated TDM spreads tensor `tc` over every wave."""
     if not tdmWaveSeparated(ks):

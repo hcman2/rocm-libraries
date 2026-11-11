@@ -1,7 +1,7 @@
 from ..Component import TensorDataMover
 from ..Common.DataType import DataType
 from ..Common import INDEX_CHARS
-from .TDMFuse import tdmWaveComponents
+from .TDMFuse import mxsaSegmentComponents, tdmWaveComponents
 from typing import Mapping, Optional
 from rocisa.code import Module, Label
 from rocisa.instruction import SMovB32, SMovB64, SOrB32, SAndB32, SLShiftLeftB32, SLShiftLeftB64, \
@@ -222,7 +222,10 @@ class TensorDataMoverLoad(TensorDataMover):
         mod.addComment(f"TDM wave separated calc start addr of {tc}")
 
         with writer.allocTmpSgpr(3, tag="TensorDataMoverLoadWaveSeparated_tmpSgprRes") as tmpSgprRes:
-            numComp, compShift, compOffset = tdmWaveComponents(kernel, tc)
+            if tc == "MXSA":
+                numComp, compShift, compOffset = mxsaSegmentComponents(kernel)
+            else:
+                numComp, compShift, compOffset = tdmWaveComponents(kernel, tc)
             tmpSgprIdx = tmpSgprRes.idx
             waveOffsetSgprIdx = tmpSgprRes.idx + 2
             mod.add(SMovB64(sgpr(tmpSgprIdx, 2), 0))

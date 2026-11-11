@@ -60,8 +60,9 @@ Without MXSA M splitting, buffer placement for both MX scales is:
     pong: [interleaved A/B data][MXSA][MXSB]
 
 On coarse [2,2] InMemorySwizzle layouts, MXSA can instead be loaded as two M
-halves, one per SIMD pair, when TDM uses exactly two components. The halves
-occupy separate segments and each contains all K scale groups. The builders
+halves, one per SIMD pair, when TDM uses exactly two components. One-sided
+MXSA rides four waves (numComp 4, shift 0); those waves fold onto the same two
+halves, WaveIdx >> 1, and each half still contains all K scale groups. The builders
 size the halves before assigning final A/B
 bases and strides. With split B, each MXSA half follows its component's B
 data; with whole B, it follows A instead and B keeps its baseline addressing.
@@ -171,8 +172,11 @@ def _mxsa_half_layout(state, paired=False):
             or state.get("TDMFuse") or state.get("TDMSplit")
             or state.get("DirectToVgprMXSA") or not _coarse(state, "A")):
         return None
-    # The TDM component IDs must map directly to the two reserved M-half slots.
-    if tdmWaveComponents(state, "MXSA")[0] != 2:
+    # Two reserved M-half slots. Two-sided MXSA already has two components.
+    # One-sided MXSA (TDMFuse 0) has four waves at shift 0; mxsaSegmentComponents
+    # folds those onto the same two slots, so this layout still applies.
+    numComp, shift, offset = tdmWaveComponents(state, "MXSA")
+    if not (numComp == 2 or (numComp == 4 and shift == 0 and offset == 0)):
         return None
     rawHalf = state["MacroTile0"] * (state["DepthU"] // pt["MXBlockA"]) // 2
     pad, block = state.get("LdsPadMXSA", 0), state.get("LdsBlockSizePerPadMXSA", 0)

@@ -90,7 +90,7 @@ from .Components.TDMFuse import tdmFusePaired, tdmGroupPartner, \
                                 TdmArrangementNotEmittable, tdmHalfPlrMaskedIncs, \
                                 tdmHintDeciders, tdmKDimField, tdmKDimStepIsAddrInc, \
                                 tdmMemberIsLive, tdmPairOnEveryWave, tdmRidesEveryWave, \
-                                tdmStashedMembers, tdmWaveComponents, tdmWaveGuard, \
+                                tdmStashedMembers, mxsaSegmentComponents, tdmWaveComponents, tdmWaveGuard, \
                                 tdmWavePartition, tdmWaveRangeText, tdmWaveResident
 from .SolutionStructs import isPackedIndex
 from .AsmStoreState import StoreState, VectorDataTypes
@@ -790,7 +790,10 @@ class KernelWriterAssembly(KernelWriter):
     skipped, so it must use the same component id; a mismatched clamp still
     assembles.
     """
-    numComp, compShift, compOffset = tdmWaveComponents(kernel, tc)
+    if tc == "MXSA":
+      numComp, compShift, compOffset = mxsaSegmentComponents(kernel)
+    else:
+      numComp, compShift, compOffset = tdmWaveComponents(kernel, tc)
     _, compWaves = tdmWavePartition(kernel, tc)
     if compShift is None:
       comment = f"wId=0 (wave {compWaves[0]} alone carries {tc})"
@@ -23464,7 +23467,10 @@ class KernelWriterAssembly(KernelWriter):
     bpe: float = tP["bpeGR"] if not tP["isM"] else 1
     #TODO: temp hack
     numWaves: int = kernel["NumWaves"]
-    numComp, compShift, compOffset = tdmWaveComponents(kernel, tc)
+    if tc == "MXSA":
+      numComp, compShift, compOffset = mxsaSegmentComponents(kernel)
+    else:
+      numComp, compShift, compOffset = tdmWaveComponents(kernel, tc)
     wavelen: int = kernel["WavefrontSize"]
     ldsConstOffset: int = kernel[f"LdsOffset{tc}"]
     ldsBlockSizePerPad: int = kernel[f"LdsBlockSizePerPad{tc}"]
