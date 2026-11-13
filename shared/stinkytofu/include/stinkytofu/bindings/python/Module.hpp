@@ -120,7 +120,6 @@
     X(CloneList, std::vector<CloneSpec>)          \
     X(DsReadQueueDepth, int)                      \
     X(DsReadDrainLatency, int)                    \
-    X(TensorLoadWmmaSpace, int)                   \
     X(WmmaRefillMode, int)                        \
     X(WmmaBatchSize, int)                         \
     X(WmmaRefillToCycles, int)                    \
@@ -152,7 +151,10 @@
     X(DsReadCyclesPerLoad, int, 6)        /* LDS return rate (cycles per ds_load); 0 = off */      \
     X(ClusterBarrierRule3SignalLeadCycles, int, -1)                                                \
     X(ReduceClusterBarrierPerLoop, int, -1)                                                        \
-    X(TensorLoadDsLoadGapCycles, int, 64)
+    X(TensorLoadWmmaSpace, int,                                                                    \
+      2) /* extra WMMAs between exclusive after/before barriers; 0 = off */                        \
+    X(TensorLoadDsLoadGapCycles, int,                                                              \
+      0) /* extra after-barrier / before-side ds_load gap (cycles); 0 = off */
 
 namespace stinkytofu {
 /**

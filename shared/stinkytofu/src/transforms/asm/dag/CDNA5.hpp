@@ -3563,7 +3563,7 @@ void CDNA5ReadyQueue::onInitRegion(IRList::iterator regionStart, IRList::iterato
                     if (demandFits) {
                         // Room for both issue windows and the slack: pull after
                         // earlier by the slack plus the configured
-                        // TensorLoadDsLoadGapCycles (default 64) worth of WMMA
+                        // TensorLoadDsLoadGapCycles worth of WMMA
                         // windows so tensor loads stay off the ds_loads.
                         placement = "gap";
                         const int separation = separationSlack + tensorLoadDsLoadGapWmma;

@@ -98,7 +98,9 @@ struct PassFeatureConfig {
         int globalReadDrainLatency = 0;
         int dsReadQueueDepth = 0;
         int dsReadDrainLatency = 0;
-        int tensorLoadWmmaSpace = 0;
+        /// Extra WMMAs between exclusive after/before barrier groups. Mirrors
+        /// ModuleOptions::TensorLoadWmmaSpace. 0 = off.
+        int tensorLoadWmmaSpace = 2;
         /// Cycles of queued WMMA work that must remain before a non-WMMA pick (ds_load,
         /// filler, tensor_load) may issue; below it, and with room in the queue, the next
         /// ready WMMA goes first so the pipe never runs dry. Picks the scheduler is forced
@@ -138,7 +140,7 @@ struct PassFeatureConfig {
         /// ds_loads when exclusive overlap uses gap placement. Converted to
         /// WMMA windows by the region's matrix latency. 0 disables the extra
         /// gap. Mirrors ModuleOptions::TensorLoadDsLoadGapCycles.
-        int tensorLoadDsLoadGapCycles = 64;
+        int tensorLoadDsLoadGapCycles = 0;
         /// Unused by StinkyMergeBarrierPass. Adjacent groups merge only when no
         /// matrix instruction is issued between them. Kept so existing callers
         /// and --merge-barrier-threshold= still parse. Internal knob only —

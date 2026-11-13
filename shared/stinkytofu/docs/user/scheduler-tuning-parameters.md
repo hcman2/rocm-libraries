@@ -146,8 +146,8 @@ On gfx1250 it is currently 1, so this is inert.
 |---|---|---|---|
 | `GlobalReadQueueDepth` | 0 (off) | `--global-read-queue-depth=N` | In-flight `tensor_load_to_lds` credits. 0 disables the throttle. |
 | `GlobalReadDrainLatency` | 0 | `--global-read-drain-latency=N` | Cycles until one tensor_load credit frees. |
-| `TensorLoadWmmaSpace` | 0 (off) | `--tensor-load-wmma-space=N` | Extra WMMAs between exclusive after/before barrier groups: after-thresholds move N/2 WMMAs earlier, before-thresholds ceil(N/2) later. |
-| `TensorLoadDsLoadGapCycles` | 64 | `--tensor-load-ds-load-gap-cycles=N` | Extra gap, in cycles, between an after-barrier and the before-side ds_loads on the gap-placement path. Rounded up to whole WMMAs. 0 = off. |
+| `TensorLoadWmmaSpace` | 2 | `--tensor-load-wmma-space=N` | Extra WMMAs between exclusive after/before barrier groups: after-thresholds move N/2 WMMAs earlier, before-thresholds ceil(N/2) later. |
+| `TensorLoadDsLoadGapCycles` | 0 | `--tensor-load-ds-load-gap-cycles=N` | Extra gap, in cycles, between an after-barrier and the before-side ds_loads on the gap-placement path. Rounded up to whole WMMAs. 0 = off. |
 
 Per WMMA window, at most `globalReadPerWmma` (arch default 1) tensor_loads issue while other work is ready; not a module option.
 
