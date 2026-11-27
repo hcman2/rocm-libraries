@@ -774,6 +774,9 @@ class CDNA5ReadyQueue : public ReadyQueue {
         // the after threshold down to this index + 1; the full drain in
         // depThreshold does not fit once the claim windows overlap.
         int maxParentWmmaIdx = 0;
+        // True when Step 4b replaced the overlap threshold with depThreshold
+        // (maxParentWmmaIdx + latency budget).
+        bool usedParentDependency = false;
     };
 
     int wmmaIssuedCountThisRegion_ = 0;
@@ -2210,6 +2213,8 @@ CDNA5ReadyQueue::computeBarrierAfterThresholds(IRList::iterator regionStart,
         // A schedulable tensor_load issues behind this group. The overlap step below separates
         // ds_load windows, which that load is not part of, so it may not carry the load along.
         bool gatesTensorLoad;
+        // Step 4b picked depThreshold (maxParentWmmaIdx + latency budget).
+        bool usedParentDependency;
     };
     // The region's own tensor_loads: one that is a scheduling boundary is not inside the region,
     // so anything found here is a load the scheduler places, and the barrier it waits behind
@@ -2391,11 +2396,12 @@ CDNA5ReadyQueue::computeBarrierAfterThresholds(IRList::iterator regionStart,
             barrierWmmaThresholds_[barrier] = afterThreshold;
             result[barrier] = {afterThreshold,    afterThreshold,      latencyWmmaBudget,
                                wmmaWindowsNeeded, matchingDsLoadCount, depThreshold,
-                               maxParentWmmaIdx};
+                               maxParentWmmaIdx,  usedParentDependency};
         }
         overlapChecks.push_back({groupBarrier, group.barriers, afterThreshold, lastOverlap,
                                  wmmaWindowsNeeded, latencyWmmaBudget, matchingDsLoadCount,
-                                 depThreshold, maxParentWmmaIdx, gatesTensorLoad(group)});
+                                 depThreshold, maxParentWmmaIdx, gatesTensorLoad(group),
+                                 usedParentDependency});
         PASS_DEBUG(std::cerr << "[CDNA5 computeBarrierAfterThresholds] barrier=" << groupBarrier
                              << " barrierGroupSize=" << group.barriers.size() << " afterThreshold="
                              << afterThreshold << " matchingDsLoadCount=" << matchingDsLoadCount
@@ -2468,7 +2474,7 @@ CDNA5ReadyQueue::computeBarrierAfterThresholds(IRList::iterator regionStart,
             result[barrier] = {adjustedAfterThreshold,    summary.afterThreshold,
                                summary.latencyWmmaBudget, summary.wmmaWindowsNeeded,
                                summary.dsLoadCount,       summary.depThreshold,
-                               summary.maxParentWmmaIdx};
+                               summary.maxParentWmmaIdx,  summary.usedParentDependency};
         }
         PASS_DEBUG(
             std::cerr << "[CDNA5 computeBarrierAfterThresholds overlap] barrier="
@@ -3350,6 +3356,13 @@ void CDNA5ReadyQueue::onInitRegion(IRList::iterator regionStart, IRList::iterato
             // Latest parent WMMA among the group's after-map barriers. 0 when
             // none of those ds_loads has a WMMA parent.
             int maxParentWmmaIdx = 0;
+            // Any after-map barrier took its threshold from Step 4b, i.e. the
+            // threshold is bound by a parent-WMMA dependency.
+            bool usedParentDependency = false;
+            // Set on both halves of a pair whose after group is parent-bound and
+            // whose claim windows overlap. Layer 2 already placed that pair, so
+            // tensorLoadWmmaSpace must not move either half.
+            bool skipTensorLoadWmmaSpace = false;
             // Descendants used when publishing hard orderings on overlap.
             std::vector<StinkyInstruction*> descendantLoads;
             // A proportional placement keeps the signal/wait pair together for
@@ -3375,6 +3388,7 @@ void CDNA5ReadyQueue::onInitRegion(IRList::iterator regionStart, IRList::iterato
                 int maxClaimWindow = 0;
                 int maxSplitNeeded = 0;
                 int maxParentWmmaIdx = 0;
+                bool usedParentDependency = false;
                 bool hasPrimary = false;
                 bool hasCross = false;
                 for (StinkyInstruction* barrier : group.barriers) {
@@ -3385,6 +3399,7 @@ void CDNA5ReadyQueue::onInitRegion(IRList::iterator regionStart, IRList::iterato
                     auto pIt = afterThresholds.find(barrier);
                     if (pIt != afterThresholds.end()) {
                         hasPrimary = true;
+                        usedParentDependency |= pIt->second.usedParentDependency;
                         baseThresholdSum += pIt->second.baseAfterThreshold;
                         baseThresholdCount++;
                         // Full unclamped after demand for overlap detection.
@@ -3407,6 +3422,7 @@ void CDNA5ReadyQueue::onInitRegion(IRList::iterator regionStart, IRList::iterato
                 summary.claimWindow = maxClaimWindow;
                 summary.splitNeeded = maxSplitNeeded;
                 summary.maxParentWmmaIdx = maxParentWmmaIdx;
+                summary.usedParentDependency = usedParentDependency;
                 summary.pendingThreshold = summary.threshold;
                 groups.push_back(std::move(summary));
             }
@@ -3590,6 +3606,12 @@ void CDNA5ReadyQueue::onInitRegion(IRList::iterator regionStart, IRList::iterato
                 const int baseBeforeEnd = baseBeforeBegin + beforeGroup.claimWindow;
                 const bool overlap = (baseAfterBegin < baseBeforeEnd) &&
                                      (baseBeforeBegin < baseAfterEnd + separationSlack);
+                // A parent-bound after group that overlaps its before group keeps
+                // the Layer 2 placement; tensorLoadWmmaSpace skips both halves.
+                if (overlap && afterGroup.usedParentDependency) {
+                    afterGroup.skipTensorLoadWmmaSpace = true;
+                    beforeGroup.skipTensorLoadWmmaSpace = true;
+                }
                 // Even when the two claimed windows do not overlap, an after
                 // group whose threshold is earlier than the before group has
                 // room for its tensor load. Keep that load in the gap instead
@@ -3758,7 +3780,19 @@ void CDNA5ReadyQueue::onInitRegion(IRList::iterator regionStart, IRList::iterato
         if (targetTensorLoadWmmaSpace > 0) {
             const int deltaAfter = targetTensorLoadWmmaSpace / 2;
             const int deltaBefore = (targetTensorLoadWmmaSpace + 1) / 2;
+            // A pair whose after group is parent-bound (Step 4b depThreshold) and
+            // whose claim windows overlap keeps its Layer 2 placement. Both halves
+            // are marked skipTensorLoadWmmaSpace, so the pair never moves one-sided.
             for (auto& afterGroup : exclusiveAfterGroups) {
+                if (afterGroup.skipTensorLoadWmmaSpace) {
+                    PASS_DEBUG(std::cerr
+                               << "[CDNA5 onInitRegion tensorLoadWmmaSpace] skip parent-bound "
+                                  "overlapping afterGroupAnchor="
+                               << afterGroup.anchor << " threshold=" << afterGroup.threshold
+                               << " targetTensorLoadWmmaSpace=" << targetTensorLoadWmmaSpace
+                               << "\n");
+                    continue;
+                }
                 afterGroup.threshold = std::clamp(afterGroup.threshold - deltaAfter, 0, totalWmma);
                 PASS_DEBUG(std::cerr << "[CDNA5 onInitRegion tensorLoadWmmaSpace] afterGroupAnchor="
                                      << afterGroup.anchor << " threshold=" << afterGroup.threshold
@@ -3767,6 +3801,15 @@ void CDNA5ReadyQueue::onInitRegion(IRList::iterator regionStart, IRList::iterato
                                      << "\n");
             }
             for (auto& beforeGroup : exclusiveBeforeGroups) {
+                if (beforeGroup.skipTensorLoadWmmaSpace) {
+                    PASS_DEBUG(std::cerr
+                               << "[CDNA5 onInitRegion tensorLoadWmmaSpace] skip paired "
+                                  "overlapping beforeGroupAnchor="
+                               << beforeGroup.anchor << " threshold=" << beforeGroup.threshold
+                               << " targetTensorLoadWmmaSpace=" << targetTensorLoadWmmaSpace
+                               << "\n");
+                    continue;
+                }
                 beforeGroup.threshold =
                     std::clamp(beforeGroup.threshold + deltaBefore, 0, totalWmma);
                 PASS_DEBUG(std::cerr
